@@ -10,8 +10,8 @@ import {
   SidePot,
 } from "./types";
 
-const SMALL_BLIND = 500;
-const BIG_BLIND = 1000;
+const SMALL_BLIND = 5000;
+const BIG_BLIND = 10000;
 const RAKE_PERCENT = 0.005; // 0.5%
 
 export class PokerGame {
