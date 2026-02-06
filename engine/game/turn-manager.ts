@@ -69,7 +69,18 @@ export class TurnManager {
       }
     }
 
-    // External agent: send your_turn via WS, await response
+    // External agent: if disconnected/sitting out, immediately check or fold
+    if (!agent.ws || agent.sittingOut) {
+      const canCheck = validActions.find(a => a.action === "check");
+      return {
+        action: canCheck ? "check" : "fold",
+        amount: 0,
+        reasoning: "Agent disconnected",
+        timedOut: true,
+      };
+    }
+
+    // Send your_turn via WS, await response
     const player = gameState.players[gameState.activePlayerIndex];
 
     this.server.sendToAgent(agent.agentId, "your_turn", {

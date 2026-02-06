@@ -1,5 +1,7 @@
 export { PokerAgentClient } from "./client";
 export type { AgentConfig } from "./client";
+export { createStrategy } from "./strategy";
+export type { StrategyConfig } from "./strategy";
 export type {
   CardData,
   PlayerAction,

@@ -8,8 +8,8 @@ import AgentAvatar from "./AgentAvatar";
 interface Props {
   agentIndex: number;
   agentName: string;
-  pool: PoolInfo | null;
-  position: PositionInfo | null;
+  pool: PoolInfo | null | undefined;
+  position: PositionInfo | null | undefined;
   connected: boolean;
   txPending: boolean;
   onDeposit: (agentIndex: number, amount: number) => Promise<void>;
@@ -53,19 +53,22 @@ export default function BankrollPanel({
       await onDeposit(agentIndex, amt);
       setDepositAmount("");
     } catch (e: any) {
-      setError(e.message?.slice(0, 80) || "Transaction failed");
+      console.error("Deposit error:", e);
+      setError(e.message?.slice(0, 200) || "Transaction failed");
     }
   };
 
   const handleWithdraw = async () => {
     setError("");
     if (!userShares) { setError("No shares to withdraw"); return; }
+    if (pool && pool.totalAssets === 0) { setError("Pool has no assets — nothing to withdraw"); return; }
     const sharesToBurn = Math.floor(userShares * withdrawPct / 100);
     if (sharesToBurn <= 0) { setError("Nothing to withdraw"); return; }
     try {
       await onWithdraw(agentIndex, sharesToBurn);
     } catch (e: any) {
-      setError(e.message?.slice(0, 80) || "Transaction failed");
+      console.error("Withdraw error:", e);
+      setError(e.message?.slice(0, 200) || "Transaction failed");
     }
   };
 

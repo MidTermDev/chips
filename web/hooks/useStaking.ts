@@ -4,7 +4,12 @@ import { useState, useEffect, useCallback, useRef } from "react";
 import { useConnection, useWallet } from "@solana/wallet-adapter-react";
 import { PublicKey } from "@solana/web3.js";
 import { AnchorProvider, Program, BN } from "@coral-xyz/anchor";
-import { getAssociatedTokenAddress } from "@solana/spl-token";
+import {
+  getAssociatedTokenAddress,
+  createAssociatedTokenAccountInstruction,
+  ASSOCIATED_TOKEN_PROGRAM_ID,
+  TOKEN_PROGRAM_ID,
+} from "@solana/spl-token";
 
 const PROGRAM_ID = new PublicKey("6K4Er44wfQDDnGNUbRc8ucrceb5iwAJi8bEtbbpzKbQc");
 const MINT_ADDRESS = process.env.NEXT_PUBLIC_CHIPS_MINT || "";
@@ -133,8 +138,8 @@ export function useStaking() {
   const { connection } = useConnection();
   const wallet = useWallet();
 
-  const [pools, setPools] = useState<(PoolInfo | null)[]>(Array(8).fill(null));
-  const [positions, setPositions] = useState<(PositionInfo | null)[]>(Array(8).fill(null));
+  const [pools, setPools] = useState<Record<number, PoolInfo | null>>({});
+  const [positions, setPositions] = useState<Record<number, PositionInfo | null>>({});
   const [loading, setLoading] = useState(false);
   const [txPending, setTxPending] = useState(false);
   const programRef = useRef<Program | null>(null);
@@ -170,14 +175,20 @@ export function useStaking() {
   }, [connection, getProgram]);
 
   const fetchPoolData = async (program: Program) => {
-    const poolResults: (PoolInfo | null)[] = [];
-    for (let i = 0; i < 8; i++) {
+    const poolResults: Record<number, PoolInfo | null> = {};
+    const expectedMint = MINT_ADDRESS ? new PublicKey(MINT_ADDRESS) : null;
+    // Scan pool indices 8-32 (skips 0-7 reserved range, covers allocated agents)
+    for (let i = 8; i < 32; i++) {
       try {
         const pda = getPoolPDA(i);
         const raw: any = await (program.account as any).pool.fetch(pda);
+        // Skip pools initialized with a different mint
+        if (expectedMint && raw.mint && !new PublicKey(raw.mint).equals(expectedMint)) {
+          continue;
+        }
         const totalShares = raw.totalShares.toNumber();
         const totalAssets = raw.totalAssets.toNumber();
-        poolResults.push({
+        poolResults[i] = {
           agentIndex: raw.agentIndex,
           totalShares,
           totalAssets,
@@ -187,9 +198,9 @@ export function useStaking() {
           sharePrice: totalShares > 0 ? totalAssets / totalShares : 1,
           vault: raw.vault,
           feeVault: raw.feeVault,
-        });
+        };
       } catch {
-        poolResults.push(null);
+        // Pool doesn't exist at this index
       }
     }
     setPools(poolResults);
@@ -198,14 +209,16 @@ export function useStaking() {
   // Fetch user positions
   const refreshPositions = useCallback(async () => {
     if (!wallet.publicKey) {
-      setPositions(Array(8).fill(null));
+      setPositions({});
       return;
     }
     const program = getProgram();
     if (!program) return;
 
-    const posResults: (PositionInfo | null)[] = [];
-    for (let i = 0; i < 8; i++) {
+    const posResults: Record<number, PositionInfo | null> = {};
+    // Check positions for all pool indices that exist
+    const poolIndices = Object.keys(pools).map(Number);
+    for (const i of poolIndices) {
       try {
         const poolPDA = getPoolPDA(i);
         const posPDA = getPositionPDA(poolPDA, wallet.publicKey);
@@ -216,18 +229,35 @@ export function useStaking() {
         const currentValue = pool && pool.totalShares > 0
           ? Math.floor(shares * pool.totalAssets / pool.totalShares)
           : 0;
-        posResults.push({
+        posResults[i] = {
           shares,
           depositedAmount: deposited,
           currentValue,
           pnl: currentValue - deposited,
-        });
+        };
       } catch {
-        posResults.push(null);
+        // No position at this pool
       }
     }
     setPositions(posResults);
   }, [wallet.publicKey, pools, getProgram]);
+
+  // Helper: build tx, optionally prepend ATA creation, send via wallet adapter
+  const sendTx = useCallback(async (tx: import("@solana/web3.js").Transaction, mint: PublicKey) => {
+    if (!wallet.publicKey || !wallet.sendTransaction) throw new Error("Wallet not connected");
+    const userATA = await getAssociatedTokenAddress(mint, wallet.publicKey);
+    const ataInfo = await connection.getAccountInfo(userATA);
+    if (!ataInfo) {
+      tx.instructions.unshift(
+        createAssociatedTokenAccountInstruction(
+          wallet.publicKey, userATA, wallet.publicKey, mint,
+        )
+      );
+    }
+    const sig = await wallet.sendTransaction(tx, connection, { skipPreflight: false });
+    await connection.confirmTransaction(sig, "confirmed");
+    return sig;
+  }, [connection, wallet]);
 
   // Deposit
   const doDeposit = useCallback(async (agentIndex: number, displayAmount: number) => {
@@ -248,7 +278,7 @@ export function useStaking() {
         PROGRAM_ID
       );
 
-      const sig = await program.methods
+      const tx = await program.methods
         .deposit(amount)
         .accounts({
           user: wallet.publicKey,
@@ -260,15 +290,16 @@ export function useStaking() {
           systemProgram: new PublicKey("11111111111111111111111111111111"),
           tokenProgram: new PublicKey("TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"),
         } as any)
-        .rpc();
+        .transaction();
 
+      const sig = await sendTx(tx, mint);
       console.log(`Deposit sig: ${sig}`);
       await refreshPools();
       await refreshPositions();
     } finally {
       setTxPending(false);
     }
-  }, [wallet.publicKey, pools, getProgram, refreshPools, refreshPositions]);
+  }, [connection, wallet, pools, getProgram, sendTx, refreshPools, refreshPositions]);
 
   // Withdraw
   const doWithdraw = useCallback(async (agentIndex: number, shares: number) => {
@@ -288,7 +319,7 @@ export function useStaking() {
         PROGRAM_ID
       );
 
-      const sig = await program.methods
+      const tx = await program.methods
         .withdraw(new BN(shares))
         .accounts({
           user: wallet.publicKey,
@@ -299,15 +330,16 @@ export function useStaking() {
           userTokenAccount: userATA,
           tokenProgram: new PublicKey("TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"),
         } as any)
-        .rpc();
+        .transaction();
 
+      const sig = await sendTx(tx, mint);
       console.log(`Withdraw sig: ${sig}`);
       await refreshPools();
       await refreshPositions();
     } finally {
       setTxPending(false);
     }
-  }, [wallet.publicKey, pools, getProgram, refreshPools, refreshPositions]);
+  }, [connection, wallet, pools, getProgram, sendTx, refreshPools, refreshPositions]);
 
   // Auto-refresh pools periodically
   useEffect(() => {

@@ -4,7 +4,7 @@ import { MAX_PLAYERS } from "../protocol/constants";
 export interface RegisteredAgent {
   agentId: string;
   seat: number;
-  poolIndex: number;       // same as seat
+  poolIndex: number;       // persistent vault/pool index from API key (NOT seat)
   name: string;
   style: string;
   avatar: string;
@@ -28,6 +28,7 @@ export interface RegistrationOpts {
   ws: WebSocket | null;
   chips?: number;
   isHouseBot?: boolean;
+  poolIndex?: number;      // persistent pool index from API key store
 }
 
 export type RegistrationError = "table_full" | "duplicate_id" | "invalid_params";
@@ -46,7 +47,7 @@ export class PlayerRegistry {
     const agent: RegisteredAgent = {
       agentId: opts.agentId,
       seat,
-      poolIndex: seat,
+      poolIndex: opts.poolIndex ?? seat,
       name: opts.name,
       style: opts.style || "Unknown",
       avatar: opts.avatar || opts.name.slice(0, 2).toUpperCase(),
@@ -161,6 +162,7 @@ export class PlayerRegistry {
       agents.push({
         agentId: a.agentId,
         seat: a.seat,
+        poolIndex: a.poolIndex,
         name: a.name,
         style: a.style,
         avatar: a.avatar,
@@ -184,7 +186,7 @@ export class PlayerRegistry {
       const agent: RegisteredAgent = {
         agentId: s.agentId,
         seat: s.seat,
-        poolIndex: s.seat,
+        poolIndex: s.poolIndex ?? s.seat,
         name: s.name,
         style: s.style,
         avatar: s.avatar,
@@ -207,6 +209,7 @@ export class PlayerRegistry {
 export interface AgentSnapshot {
   agentId: string;
   seat: number;
+  poolIndex?: number;
   name: string;
   style: string;
   avatar: string;

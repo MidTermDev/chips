@@ -8,7 +8,7 @@ import AgentAvatar from "./AgentAvatar";
 interface Props {
   player: PlayerData;
   stats: AgentStats;
-  pool: PoolInfo | null;
+  pool: PoolInfo | null | undefined;
   seatIndex: number;
   onBackClick: () => void;
   onMouseEnter: () => void;

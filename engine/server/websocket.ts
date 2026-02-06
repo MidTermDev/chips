@@ -84,7 +84,8 @@ export class GameServer {
   // Callbacks for game loop integration
   onAgentRegistered?: (agent: RegisteredAgent) => void;
   onAgentLeft?: (agent: RegisteredAgent, reason: string) => void;
-  onAgentVerified?: (agentId: string, seat: number) => void;
+  onAgentVerified?: (agentId: string, poolIndex: number) => void;
+  onFindEvictableAgent?: (excludeAgentId: string) => Promise<string | null>;
 
   constructor(port: number, registry: PlayerRegistry, profileStore?: ProfileStore, verificationStore?: VerificationStore, apiKeyStore?: ApiKeyStore) {
     this.registry = registry;
@@ -413,8 +414,8 @@ export class GameServer {
           agent.verified = true;
         }
 
-        // Trigger callback
-        this.onAgentVerified?.(verification.agentId, verification.seat);
+        // Trigger callback — use agent's poolIndex (not seat) for pool init
+        this.onAgentVerified?.(verification.agentId, agent?.poolIndex ?? verification.seat);
 
         res.writeHead(200, { "Content-Type": "application/json" });
         res.end(JSON.stringify({
@@ -487,7 +488,7 @@ export class GameServer {
     ws.on("error", () => this.spectators.delete(ws));
   }
 
-  private handleAgentConnection(ws: WebSocket, params: Record<string, string>): void {
+  private async handleAgentConnection(ws: WebSocket, params: Record<string, string>): Promise<void> {
     const { apiKey } = params;
 
     // ─── API Key auth (required for all external agents) ─────
@@ -510,8 +511,9 @@ export class GameServer {
       if (existing) {
         this.registry.reconnect(agentId, ws);
         existing.sittingOut = false;
+        existing.poolIndex = record.poolIndex; // ensure poolIndex stays in sync
         this.clearSitOutTimer(agentId);
-        console.log(`[GameServer] Agent ${name} reconnected to seat ${existing.seat}`);
+        console.log(`[GameServer] Agent ${name} reconnected to seat ${existing.seat} (pool ${existing.poolIndex})`);
         this.sendToWs(ws, "register_ack", {
           type: "register_ack",
           seat: existing.seat,
@@ -525,18 +527,74 @@ export class GameServer {
           },
           waitingForNextHand: this.handInProgress,
         });
+        // Ensure pool exists (idempotent)
+        this.onAgentVerified?.(agentId, existing.poolIndex);
         this.setupAgentListeners(ws, agentId);
+        this.broadcastLobbyState();
         return;
       }
 
       // New registration from API key
-      const result = this.registry.register({
+      let result = this.registry.register({
         agentId,
         name,
         style,
         avatar,
         ws,
+        poolIndex: record.poolIndex,
       });
+
+      // ─── Eviction: if table full, try to evict an unfunded agent ───
+      if (result === "table_full" && !this.handInProgress && this.onFindEvictableAgent) {
+        try {
+          const evictId = await this.onFindEvictableAgent(agentId);
+          if (evictId) {
+            const evictee = this.registry.getById(evictId);
+            if (evictee) {
+              console.log(`[GameServer] Evicting unfunded agent ${evictee.name} (seat ${evictee.seat}) to make room for ${name}`);
+
+              // Notify evictee
+              if (evictee.ws && evictee.ws.readyState === WebSocket.OPEN) {
+                this.sendToWs(evictee.ws, "register_error", {
+                  type: "register_error",
+                  reason: "evicted",
+                  message: "You have been evicted from the table (unfunded). Deposit tokens to rejoin.",
+                });
+                evictee.ws.close();
+              }
+
+              // Broadcast player_left for evictee
+              this.broadcast("player_left", {
+                type: "player_left",
+                seat: evictee.seat,
+                agentId: evictee.agentId,
+                name: evictee.name,
+                reason: "evicted",
+              });
+
+              // Resolve any pending turn
+              this.resolveTimeoutForAgent(evictId);
+              this.clearSitOutTimer(evictId);
+
+              // Fire callback and unregister
+              this.onAgentLeft?.(evictee, "evicted_unfunded");
+              this.registry.unregister(evictId);
+
+              // Retry registration
+              result = this.registry.register({
+                agentId,
+                name,
+                style,
+                avatar,
+                ws,
+                poolIndex: record.poolIndex,
+              });
+            }
+          }
+        } catch (e: any) {
+          console.error(`[GameServer] Eviction check failed: ${e.message}`);
+        }
+      }
 
       if (typeof result === "string") {
         this.sendToWs(ws, "register_error", {
@@ -550,48 +608,7 @@ export class GameServer {
         return;
       }
 
-      // API key agents are auto-verified
-      result.verified = true;
-      result.apiKey = apiKey;
-
-      console.log(`[GameServer] Agent ${name} registered at seat ${result.seat} (API key)`);
-
-      this.sendToWs(ws, "register_ack", {
-        type: "register_ack",
-        seat: result.seat,
-        agentId,
-        config: {
-          turnTimeoutMs: TURN_TIMEOUT_MS,
-          maxTimeouts: MAX_TIMEOUTS,
-          smallBlind: 500,
-          bigBlind: 1000,
-          maxPlayers: 8,
-        },
-        waitingForNextHand: this.handInProgress,
-      });
-
-      // Broadcast join
-      this.broadcast("player_joined", {
-        type: "player_joined",
-        seat: result.seat,
-        agentId,
-        name: result.name,
-        style: result.style,
-        avatar: result.avatar,
-        chips: result.chips,
-      });
-
-      // Fire verified callback immediately (pool init)
-      this.onAgentVerified?.(agentId, result.seat);
-
-      if (this.handInProgress) {
-        this.pendingJoins.set(agentId, result);
-      } else {
-        this.onAgentRegistered?.(result);
-      }
-
-      this.setupAgentListeners(ws, agentId);
-      this.broadcastLobbyState();
+      this.finalizeRegistration(ws, result, agentId, apiKey);
       return;
     }
 
@@ -602,6 +619,52 @@ export class GameServer {
       message: "API key required. Register at chips.rip/register to get one.",
     });
     ws.close();
+  }
+
+  private finalizeRegistration(ws: WebSocket, agent: RegisteredAgent, agentId: string, apiKey: string): void {
+    // API key agents are auto-verified
+    agent.verified = true;
+    agent.apiKey = apiKey;
+
+    console.log(`[GameServer] Agent ${agent.name} registered at seat ${agent.seat} (API key)`);
+
+    this.sendToWs(ws, "register_ack", {
+      type: "register_ack",
+      seat: agent.seat,
+      agentId,
+      config: {
+        turnTimeoutMs: TURN_TIMEOUT_MS,
+        maxTimeouts: MAX_TIMEOUTS,
+        smallBlind: 500,
+        bigBlind: 1000,
+        maxPlayers: 8,
+      },
+      waitingForNextHand: this.handInProgress,
+    });
+
+    // Broadcast join
+    this.broadcast("player_joined", {
+      type: "player_joined",
+      seat: agent.seat,
+      poolIndex: agent.poolIndex,
+      agentId,
+      name: agent.name,
+      style: agent.style,
+      avatar: agent.avatar,
+      chips: agent.chips,
+    });
+
+    // Fire verified callback immediately (pool init) — use poolIndex, not seat
+    this.onAgentVerified?.(agentId, agent.poolIndex);
+
+    if (this.handInProgress) {
+      this.pendingJoins.set(agentId, agent);
+    } else {
+      this.onAgentRegistered?.(agent);
+    }
+
+    this.setupAgentListeners(ws, agentId);
+    this.broadcastLobbyState();
   }
 
   private setupAgentListeners(ws: WebSocket, agentId: string): void {
@@ -855,6 +918,7 @@ export class GameServer {
       communityCards: [],
       players: agents.map(a => ({
         seat: a.seat,
+        poolIndex: a.poolIndex,
         agentId: a.agentId,
         name: a.name,
         style: a.style,

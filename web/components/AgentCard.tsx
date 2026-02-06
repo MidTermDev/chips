@@ -26,9 +26,9 @@ export default function AgentCard({ player, stats, isSelected, onClick }: Props)
     <div
       onClick={onClick}
       style={{
-        display: "flex", alignItems: "center", gap: 6,
-        padding: "3px 12px",
-        height: 26,
+        display: "flex", alignItems: "center", gap: 8,
+        padding: "4px 14px",
+        height: 30,
         cursor: "pointer",
         borderLeft: isSelected ? "2px solid #c9a83a" : "2px solid transparent",
         background: isSelected ? "rgba(200,168,58,0.04)" : "transparent",

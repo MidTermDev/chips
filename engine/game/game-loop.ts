@@ -111,11 +111,11 @@ export class GameLoop {
           for (const agent of this.registry.getSeatedAgents()) {
             if (agent.sittingOut) continue;
             try {
-              const vaultBal = await getVaultBalance(this.connection, agent.seat);
+              const vaultBal = await getVaultBalance(this.connection, agent.poolIndex, this.mintAddress);
               const displayBal = tokenAmountToDisplay(vaultBal);
               if (displayBal !== agent.chips) {
                 this.registry.updateChips(agent.seat, displayBal);
-                console.log(`[GameLoop] Seat ${agent.seat} (${agent.name}): vault balance ${displayBal.toLocaleString()}`);
+                console.log(`[GameLoop] ${agent.name} (pool ${agent.poolIndex}): vault balance ${displayBal.toLocaleString()}`);
                 updated = true;
               }
             } catch {}
@@ -198,7 +198,7 @@ export class GameLoop {
     // Update chip counts from vault balances (blockchain mode)
     if (this.useBlockchain) {
       for (const agent of this.registry.getActiveAgents()) {
-        const vaultBal = await getVaultBalance(this.connection, agent.seat);
+        const vaultBal = await getVaultBalance(this.connection, agent.poolIndex, this.mintAddress);
         const displayBal = tokenAmountToDisplay(vaultBal);
         this.game.addPlayer(agent.seat, agent.name, displayBal);
         this.registry.updateChips(agent.seat, displayBal);
@@ -328,13 +328,30 @@ export class GameLoop {
         }
 
         const activePlayer = currentState.players[currentState.activePlayerIndex];
-        if (activePlayer.folded || activePlayer.allIn || activePlayer.sittingOut) {
+        const seat = currentState.activePlayerIndex;
+        const agent = this.registry.getBySeat(seat);
+
+        // Sync disconnect status: if agent disconnected mid-hand, fold them
+        if (agent && (agent.sittingOut || !agent.ws) && !activePlayer.sittingOut && !activePlayer.folded) {
+          console.log(`  ${activePlayer.name} disconnected mid-hand, auto-folding`);
+          this.game.applyAction("fold", 0);
+          this.server.broadcast("player_action", {
+            type: "player_action",
+            seat,
+            name: activePlayer.name,
+            action: "fold",
+            amount: 0,
+            reasoning: "Agent disconnected",
+            pot: this.game.getState().pot,
+          });
           roundComplete = this.game.advanceToNextPlayer();
           continue;
         }
 
-        const seat = currentState.activePlayerIndex;
-        const agent = this.registry.getBySeat(seat);
+        if (activePlayer.folded || activePlayer.allIn || activePlayer.sittingOut) {
+          roundComplete = this.game.advanceToNextPlayer();
+          continue;
+        }
 
         // Broadcast thinking state
         this.server.broadcast("agent_thinking", {
@@ -373,10 +390,10 @@ export class GameLoop {
         }
 
         // On-chain transfer for calls/raises/all-ins (vault -> pot via coverLoss)
-        if (this.useBlockchain && actionRecord.amount > 0) {
+        if (this.useBlockchain && actionRecord.amount > 0 && agent) {
           try {
             const sig = await coverLoss(
-              this.connection, this.adminKeypair, seat,
+              this.connection, this.adminKeypair, agent.poolIndex,
               displayToTokenAmount(actionRecord.amount), this.potATA,
             );
             if (sig) {
@@ -448,11 +465,13 @@ export class GameLoop {
     // Pay winners (pot -> vault PDA via transferToVaultPDA)
     for (const w of winners) {
       const player = finalState.players[w.playerIndex];
+      const winnerAgent = this.registry.getBySeat(w.playerIndex);
+      const winnerPoolIdx = winnerAgent?.poolIndex ?? w.playerIndex;
       console.log(`  Winner: ${player?.name} wins ${w.amount.toLocaleString()} CHIPS (${w.handDescription})`);
 
       if (this.useBlockchain) {
         try {
-          const vaultPDA = getVaultPDA(w.playerIndex);
+          const vaultPDA = getVaultPDA(winnerPoolIdx);
           const payoutSig = await transferToVaultPDA(
             this.connection, this.mintAddress, this.potKeypair,
             vaultPDA, displayToTokenAmount(w.amount),
@@ -466,8 +485,8 @@ export class GameLoop {
           });
 
           // Update bankroll in pool account
-          const vaultBal = await getVaultBalance(this.connection, w.playerIndex);
-          await updatePoolBankroll(this.connection, this.adminKeypair, w.playerIndex, vaultBal);
+          const vaultBal = await getVaultBalance(this.connection, winnerPoolIdx, this.mintAddress);
+          await updatePoolBankroll(this.connection, this.adminKeypair, winnerPoolIdx, vaultBal);
         } catch (e: any) {
           console.error(`  Payout error: ${e.message}`);
         }
@@ -499,7 +518,7 @@ export class GameLoop {
       for (const agent of this.registry.getSeatedAgents()) {
         const tracker = this.handActionTrackers.get(agent.seat);
         if (!tracker) continue;
-        const vaultBal = await getVaultBalance(this.connection, agent.seat);
+        const vaultBal = await getVaultBalance(this.connection, agent.poolIndex, this.mintAddress);
         const displayBal = tokenAmountToDisplay(vaultBal);
         this.registry.updateChips(agent.seat, displayBal);
       }
@@ -544,6 +563,7 @@ export class GameLoop {
     // Broadcast hand complete
     const playerInfos = this.registry.getSeatedAgents().map(a => ({
       seat: a.seat,
+      poolIndex: a.poolIndex,
       agentId: a.agentId,
       name: a.name,
       style: a.style,
@@ -569,13 +589,14 @@ export class GameLoop {
     blinds: { smallBlind: { playerIndex: number; amount: number }; bigBlind: { playerIndex: number; amount: number } },
   ): Promise<void> {
     try {
-      // Small blind: vault -> pot via coverLoss
+      // Small blind: vault -> pot via coverLoss (use agent's poolIndex)
+      const sbAgent = this.registry.getBySeat(blinds.smallBlind.playerIndex);
+      const sbPoolIdx = sbAgent?.poolIndex ?? blinds.smallBlind.playerIndex;
       const sbSig = await coverLoss(
-        this.connection, this.adminKeypair, blinds.smallBlind.playerIndex,
+        this.connection, this.adminKeypair, sbPoolIdx,
         displayToTokenAmount(blinds.smallBlind.amount), this.potATA,
       );
       if (sbSig) {
-        const sbAgent = this.registry.getBySeat(blinds.smallBlind.playerIndex);
         this.server.broadcast("transaction", {
           type: "transaction",
           txType: "bet",
@@ -585,13 +606,14 @@ export class GameLoop {
         });
       }
 
-      // Big blind: vault -> pot via coverLoss
+      // Big blind: vault -> pot via coverLoss (use agent's poolIndex)
+      const bbAgent = this.registry.getBySeat(blinds.bigBlind.playerIndex);
+      const bbPoolIdx = bbAgent?.poolIndex ?? blinds.bigBlind.playerIndex;
       const bbSig = await coverLoss(
-        this.connection, this.adminKeypair, blinds.bigBlind.playerIndex,
+        this.connection, this.adminKeypair, bbPoolIdx,
         displayToTokenAmount(blinds.bigBlind.amount), this.potATA,
       );
       if (bbSig) {
-        const bbAgent = this.registry.getBySeat(blinds.bigBlind.playerIndex);
         this.server.broadcast("transaction", {
           type: "transaction",
           txType: "bet",
@@ -635,6 +657,7 @@ export class GameLoop {
         const agent = this.registry.getBySeat(p.index);
         return {
           seat: p.index,
+          poolIndex: agent?.poolIndex ?? p.index,
           agentId: agent?.agentId || "",
           name: p.name,
           style: agent?.style || "",

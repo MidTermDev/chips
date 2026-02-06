@@ -18,7 +18,7 @@ pub mod chips_staking {
         agent_index: u8,
         fee_basis_points: u16,
     ) -> Result<()> {
-        require!(agent_index < 8, StakingError::InvalidAgentIndex);
+        require!(agent_index < 64, StakingError::InvalidAgentIndex);
         require!(fee_basis_points <= 1000, StakingError::FeeTooHigh);
 
         let pool = &mut ctx.accounts.pool;
@@ -52,7 +52,10 @@ pub mod chips_staking {
             .unwrap();
         let net_amount = amount.checked_sub(fee).unwrap();
 
-        let new_shares = if pool.total_shares == 0 {
+        let new_shares = if pool.total_shares == 0 || pool.total_assets == 0 {
+            // Fresh pool OR drained pool (assets hit 0 from losses).
+            // Mint shares 1:1 with net deposit.  Any old shares that
+            // still exist represent zero value, so this is fair.
             net_amount
         } else {
             net_amount
@@ -460,7 +463,7 @@ pub struct Position {
 
 #[error_code]
 pub enum StakingError {
-    #[msg("Invalid agent index (must be 0-7)")]
+    #[msg("Invalid agent index (must be 0-63)")]
     InvalidAgentIndex,
     #[msg("Fee too high (max 1000 bps = 10%)")]
     FeeTooHigh,

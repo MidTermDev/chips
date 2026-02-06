@@ -138,16 +138,15 @@ function getStakingProgram(connection: Connection, authority: Keypair): Program 
       },
       {
         name: "initializePool",
-        discriminator: [253, 6, 156, 207, 137, 92, 230, 78],
+        discriminator: [95, 180, 10, 172, 84, 174, 232, 40],
         accounts: [
           { name: "authority", signer: true, writable: true },
           { name: "pool", writable: true },
           { name: "vault", writable: true },
           { name: "feeVault", writable: true },
           { name: "mint" },
-          { name: "tokenProgram", address: "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA" },
           { name: "systemProgram", address: "11111111111111111111111111111111" },
-          { name: "rent", address: "SysvarRent111111111111111111111111111111111" },
+          { name: "tokenProgram", address: "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA" },
         ],
         args: [
           { name: "agentIndex", type: "u8" },
@@ -206,10 +205,15 @@ function getVaultPDA(agentIndex: number): PublicKey {
 export async function getVaultBalance(
   connection: Connection,
   agentIndex: number,
+  expectedMint?: PublicKey,
 ): Promise<bigint> {
   try {
     const vault = getVaultPDA(agentIndex);
     const account = await getAccount(connection, vault);
+    // If mint specified, only return balance if vault mint matches
+    if (expectedMint && !account.mint.equals(expectedMint)) {
+      return BigInt(0);
+    }
     return account.amount;
   } catch {
     return BigInt(0);
@@ -358,6 +362,14 @@ export async function initializePoolOnChain(
     // Check if pool already exists
     const existingPool = await connection.getAccountInfo(pool);
     if (existingPool) {
+      // Check if existing pool's vault uses the correct mint
+      try {
+        const vaultAccount = await getAccount(connection, vault);
+        if (!vaultAccount.mint.equals(mint)) {
+          console.log(`  [staking] Pool ${agentIndex} exists with WRONG mint (${vaultAccount.mint.toBase58().slice(0,8)}... vs ${mint.toBase58().slice(0,8)}...) — cannot reuse`);
+          return null;
+        }
+      } catch {}
       console.log(`  [staking] Pool for agent ${agentIndex} already exists`);
       return null;
     }
@@ -375,9 +387,8 @@ export async function initializePoolOnChain(
         vault,
         feeVault,
         mint,
-        tokenProgram: new PublicKey("TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"),
         systemProgram: new PublicKey("11111111111111111111111111111111"),
-        rent: new PublicKey("SysvarRent111111111111111111111111111111111"),
+        tokenProgram: new PublicKey("TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"),
       } as any)
       .rpc();
 

@@ -74,31 +74,39 @@ html, body {
 @keyframes blink { 50% { opacity: 0; } }
 .cursor-blink { animation: blink 1s step-end infinite; }
 
-/* Dark wood texture background for poker table area */
+/* Dark luxury surface behind the poker table */
 .wood-bg {
-  background-color: #1a1208;
+  background-color: #0f0d0a;
   background-image:
-    repeating-linear-gradient(
-      90deg,
-      transparent,
-      transparent 2px,
-      rgba(30,20,8,0.4) 2px,
-      rgba(30,20,8,0.4) 4px
-    ),
+    /* subtle horizontal grain lines */
     repeating-linear-gradient(
       0deg,
       transparent,
-      transparent 40px,
-      rgba(40,28,12,0.3) 40px,
-      rgba(40,28,12,0.3) 42px
+      transparent 18px,
+      rgba(40,30,16,0.12) 18px,
+      rgba(40,30,16,0.12) 19px
     ),
+    /* faint vertical variation */
+    repeating-linear-gradient(
+      90deg,
+      transparent,
+      transparent 80px,
+      rgba(30,22,10,0.06) 80px,
+      rgba(30,22,10,0.06) 82px
+    ),
+    /* warm vignette glow behind the table */
+    radial-gradient(
+      ellipse 70% 60% at 50% 48%,
+      rgba(60,45,20,0.12) 0%,
+      transparent 70%
+    ),
+    /* base gradient with warm dark tones */
     linear-gradient(
       180deg,
-      #1c1408 0%,
-      #221a0c 20%,
-      #1a1208 40%,
-      #201610 60%,
-      #1c1308 80%,
-      #18100a 100%
+      #110e0a 0%,
+      #14100b 25%,
+      #120f0a 50%,
+      #100d09 75%,
+      #0e0b08 100%
     );
 }

@@ -10,6 +10,7 @@ export interface CardData {
 
 export interface PlayerData {
   seat: number;
+  poolIndex?: number;
   agentId: string;
   name: string;
   chips: number;
@@ -150,6 +151,7 @@ export function useGameState(wsUrl: string = DEFAULT_WS_URL) {
           communityCards: data.communityCards || [],
           players: (data.players || []).map((p: any) => ({
             seat: p.seat ?? p.index ?? 0,
+            poolIndex: p.poolIndex,
             agentId: p.agentId || "",
             name: p.name || "",
             chips: p.chips || 0,
@@ -234,6 +236,7 @@ export function useGameState(wsUrl: string = DEFAULT_WS_URL) {
                 );
                 return updated ? {
                   ...p,
+                  poolIndex: updated.poolIndex ?? p.poolIndex,
                   chips: updated.chips,
                   avatar: updated.avatar || p.avatar,
                   style: updated.style || p.style,
@@ -271,6 +274,7 @@ export function useGameState(wsUrl: string = DEFAULT_WS_URL) {
             communityCards: [],
             players: msg.data.players.map((p: any) => ({
               seat: p.seat ?? p.index ?? 0,
+              poolIndex: p.poolIndex,
               agentId: p.agentId || "",
               name: p.name || "",
               chips: p.chips || 0,
@@ -316,6 +320,7 @@ export function useGameState(wsUrl: string = DEFAULT_WS_URL) {
             ...prev,
             players: [...prev.players, {
               seat: msg.data.seat,
+              poolIndex: msg.data.poolIndex,
               agentId: msg.data.agentId || "",
               name: msg.data.name,
               chips: msg.data.chips,

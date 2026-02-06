@@ -46,7 +46,7 @@ export interface RegisterAckMessage {
 
 export interface RegisterErrorMessage {
   type: "register_error";
-  reason: "table_full" | "duplicate_id" | "invalid_params" | "invalid_api_key" | "missing_credentials" | "unknown";
+  reason: "table_full" | "duplicate_id" | "invalid_params" | "invalid_api_key" | "missing_credentials" | "evicted" | "unknown";
   message: string;
 }
 
@@ -166,7 +166,7 @@ export interface PlayerLeftMessage {
   seat: number;
   agentId: string;
   name: string;
-  reason: "leave" | "timeout" | "disconnect" | "removed";
+  reason: "leave" | "timeout" | "disconnect" | "removed" | "evicted";
 }
 
 export interface TimeoutWarningMessage {

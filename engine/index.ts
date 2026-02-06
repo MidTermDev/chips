@@ -11,6 +11,7 @@ import { PokerAgent } from "./agents/agent";
 import { AGENT_PERSONALITIES } from "./agents/personalities";
 import {
   getPoolData,
+  getVaultBalance,
   initializePoolOnChain,
 } from "./solana/transactions";
 import {
@@ -113,24 +114,28 @@ async function main() {
   };
 
   // Handle agent verification
-  server.onAgentVerified = async (agentId: string, seat: number) => {
-    console.log(`[GameLoop] Agent ${agentId} verified at seat ${seat}`);
+  server.onAgentVerified = async (agentId: string, poolIndex: number) => {
+    console.log(`[GameLoop] Agent ${agentId} verified (pool ${poolIndex})`);
     if (USE_BLOCKCHAIN) {
       try {
         const connection = getConnection();
         const adminKeypair = loadKeypair("admin");
         const mint = loadMintAddress();
 
-        // Check if pool exists for that seat
-        const pool = await getPoolData(connection, adminKeypair, seat);
+        // Check if pool exists for this agent's pool index
+        const pool = await getPoolData(connection, adminKeypair, poolIndex);
         if (!pool) {
-          await initializePoolOnChain(connection, adminKeypair, mint, seat, 100); // 1% fee
-          console.log(`[GameLoop] Pool initialized for seat ${seat}`);
+          const sig = await initializePoolOnChain(connection, adminKeypair, mint, poolIndex, 100); // 1% fee
+          if (sig) {
+            console.log(`[GameLoop] Pool initialized for pool index ${poolIndex}`);
+          } else {
+            console.log(`[GameLoop] Pool init skipped for pool index ${poolIndex} (may already exist with different mint)`);
+          }
         } else {
-          console.log(`[GameLoop] Pool already exists for seat ${seat}`);
+          console.log(`[GameLoop] Pool already exists for pool index ${poolIndex}`);
         }
       } catch (e: any) {
-        console.error(`[GameLoop] Pool init error for seat ${seat}: ${e.message}`);
+        console.error(`[GameLoop] Pool init error for pool ${poolIndex}: ${e.message}`);
       }
     }
   };
@@ -140,6 +145,29 @@ async function main() {
     profileStore.setStatus(agent.agentId, "offline");
     turnManager.removeHouseBot(agent.agentId);
     saveRegistry(registry);
+  };
+
+  // Eviction: find an unfunded agent to evict when table is full
+  server.onFindEvictableAgent = async (excludeAgentId: string): Promise<string | null> => {
+    if (!USE_BLOCKCHAIN) return null;
+
+    const connection = getConnection();
+    const mint = loadMintAddress();
+    const candidates = registry.getSeatedAgents()
+      .filter(a => a.agentId !== excludeAgentId && a.chips === 0 && !a.isHouseBot);
+
+    let best: { agentId: string; lastActivity: number } | null = null;
+    for (const agent of candidates) {
+      try {
+        const vaultBal = await getVaultBalance(connection, agent.poolIndex, mint);
+        if (vaultBal === 0n && (!best || agent.lastActivityMs < best.lastActivity)) {
+          best = { agentId: agent.agentId, lastActivity: agent.lastActivityMs };
+        }
+      } catch {
+        // Can't verify vault balance — skip this candidate
+      }
+    }
+    return best?.agentId ?? null;
   };
 
   // Graceful shutdown

@@ -27,7 +27,7 @@ function loadEnv(): void {
 loadEnv();
 
 import { PokerAgentClient } from "./client";
-import { DecisionContext, PokerDecision } from "./types";
+import { createStrategy } from "./strategy";
 
 const API_KEY = process.env.CHIPS_API_KEY;
 const SERVER = process.env.CHIPS_SERVER_URL || "wss://server.chips.rip";
@@ -49,68 +49,13 @@ if (fs.existsSync(localAgent)) {
   console.log("  Running with built-in default strategy instead...\n");
 }
 
-// Default strategy (same as scaffolded template)
-async function onDecision(ctx: DecisionContext): Promise<PokerDecision> {
-  const { validActions, toCall, yourChips, holeCards, communityCards, bettingRound } = ctx;
-
-  const canCheck = validActions.find(a => a.action === "check");
-  const canCall = validActions.find(a => a.action === "call");
-  const canRaise = validActions.find(a => a.action === "raise");
-
-  const ranks = holeCards.map(c => rankValue(c.rank));
-  const isPaired = ranks.length === 2 && ranks[0] === ranks[1];
-  const isHighCards = ranks.every(r => r >= 10);
-  const hasPair = isPaired || checkBoardPair(holeCards, communityCards);
-
-  if (canCheck) {
-    if (canRaise && (isPaired || isHighCards) && Math.random() < 0.3) {
-      return { action: "raise", amount: canRaise.minAmount, reasoning: "Min-raise with decent hand" };
-    }
-    return { action: "check", reasoning: "Free to check" };
-  }
-
-  if (canCall && toCall < yourChips * 0.1) {
-    return { action: "call", reasoning: "Cheap call" };
-  }
-
-  if (canCall && toCall < yourChips * 0.3) {
-    if (hasPair || isHighCards) {
-      return { action: "call", reasoning: "Calling with pair/high cards" };
-    }
-    return { action: "fold", reasoning: "Too expensive without a hand" };
-  }
-
-  if (canCall && (isPaired || (hasPair && bettingRound !== "preflop"))) {
-    return { action: "call", reasoning: "Calling expensive with strong hand" };
-  }
-
-  return { action: "fold", reasoning: "Folding weak hand" };
-}
-
-function rankValue(rank: string): number {
-  const map: Record<string, number> = {
-    "2": 2, "3": 3, "4": 4, "5": 5, "6": 6, "7": 7, "8": 8,
-    "9": 9, "T": 10, "J": 11, "Q": 12, "K": 13, "A": 14, "10": 10,
-  };
-  return map[rank] || 0;
-}
-
-function checkBoardPair(holeCards: { rank: string }[], communityCards: { rank: string }[]): boolean {
-  for (const h of holeCards) {
-    for (const c of communityCards) {
-      if (h.rank === c.rank) return true;
-    }
-  }
-  return false;
-}
-
 console.log(`\n\u2660 CHIPS Poker Agent`);
 console.log(`  Server: ${SERVER}\n`);
 
 const client = new PokerAgentClient({
   serverUrl: SERVER,
   apiKey: API_KEY,
-  onDecision,
+  onDecision: createStrategy({ aggression: 0.5, tightness: 0.5 }),
   onGameEvent: (event) => {
     switch (event.type) {
       case "new_hand":

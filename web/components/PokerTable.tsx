@@ -19,7 +19,7 @@ interface Props {
   winners: WinnerData[];
   showdown: any;
   agentStats: Map<number, AgentStats>;
-  pools: (PoolInfo | null)[];
+  pools: Record<number, PoolInfo | null | undefined>;
   onBackAgent: (seat: number) => void;
   onLinkAgent?: () => void;
 }
@@ -125,16 +125,16 @@ export default function PokerTable({
             <div style={{
               width: "100%", height: "100%",
               borderRadius: "50%",
-              background: "radial-gradient(ellipse at 50% 42%, #1b7340 0%, #15613a 35%, #105030 65%, #0c4226 100%)",
+              background: "url('/background.png') center center / cover no-repeat",
               boxShadow: "inset 0 4px 30px rgba(0,0,0,0.35), inset 0 -2px 10px rgba(0,0,0,0.15)",
               position: "relative",
+              overflow: "hidden",
             }}>
-              {/* subtle felt texture overlay */}
+              {/* vignette overlay */}
               <div style={{
                 position: "absolute", inset: 0,
                 borderRadius: "50%",
-                background: "repeating-conic-gradient(rgba(0,0,0,0.02) 0% 25%, transparent 0% 50%)",
-                backgroundSize: "4px 4px",
+                background: "radial-gradient(ellipse at 50% 45%, transparent 30%, rgba(0,0,0,0.3) 100%)",
               }} />
               <div style={{
                 position: "absolute", inset: 0,
@@ -205,11 +205,11 @@ export default function PokerTable({
                     <AgentProfileTooltip
                       player={player}
                       stats={stats}
-                      pool={pools[seatIdx]}
+                      pool={pools[player.poolIndex ?? seatIdx]}
                       seatIndex={seatIdx}
                       onBackClick={() => {
                         setHoveredSeat(null);
-                        onBackAgent(seatIdx);
+                        onBackAgent(player.poolIndex ?? seatIdx);
                       }}
                       onMouseEnter={handleTooltipMouseEnter}
                       onMouseLeave={handleTooltipMouseLeave}

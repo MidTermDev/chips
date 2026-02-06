@@ -8,16 +8,21 @@ export interface ApiKeyRecord {
   name: string;
   style: string;
   avatar: string;          // URL or 2-char initials
+  poolIndex: number;       // persistent vault/pool index (0-255), independent of seat
   createdAt: string;
 }
 
 const DEFAULT_PATH = "data/api-keys.json";
 const KEY_PREFIX = "chp_";
+// Indices 0-7 are reserved (old pools with stale mint)
+const MIN_POOL_INDEX = 8;
 
 export class ApiKeyStore {
   private byKey: Map<string, ApiKeyRecord> = new Map();
   private byAgentId: Map<string, ApiKeyRecord> = new Map();
   private byName: Map<string, ApiKeyRecord> = new Map(); // lowercase name -> record
+  private usedPoolIndices: Set<number> = new Set();
+  private nextPoolIndex: number = MIN_POOL_INDEX;
   private path: string;
 
   constructor(path: string = DEFAULT_PATH) {
@@ -39,6 +44,7 @@ export class ApiKeyStore {
     const agentId = this.generateAgentId(name);
     const style = opts.style || "Balanced";
     const avatar = opts.avatar || name.slice(0, 2).toUpperCase();
+    const poolIndex = this.allocatePoolIndex();
 
     const record: ApiKeyRecord = {
       apiKey,
@@ -46,6 +52,7 @@ export class ApiKeyStore {
       name,
       style,
       avatar,
+      poolIndex,
       createdAt: new Date().toISOString(),
     };
 
@@ -74,6 +81,19 @@ export class ApiKeyStore {
     return Array.from(this.byKey.values());
   }
 
+  private allocatePoolIndex(): number {
+    while (this.usedPoolIndices.has(this.nextPoolIndex)) {
+      this.nextPoolIndex++;
+    }
+    if (this.nextPoolIndex > 255) {
+      throw new Error("No pool indices available (max 256 agents)");
+    }
+    const idx = this.nextPoolIndex;
+    this.usedPoolIndices.add(idx);
+    this.nextPoolIndex++;
+    return idx;
+  }
+
   private generateAgentId(name: string): string {
     const base = name
       .toLowerCase()
@@ -100,12 +120,30 @@ export class ApiKeyStore {
       this.byKey.clear();
       this.byAgentId.clear();
       this.byName.clear();
+      this.usedPoolIndices.clear();
+
+      let needsSave = false;
       for (const r of data) {
+        // Migrate old records without poolIndex
+        if (r.poolIndex === undefined || r.poolIndex === null) {
+          r.poolIndex = this.allocatePoolIndex();
+          needsSave = true;
+        } else {
+          this.usedPoolIndices.add(r.poolIndex);
+        }
         this.byKey.set(r.apiKey, r);
         this.byAgentId.set(r.agentId, r);
         this.byName.set(r.name.toLowerCase(), r);
       }
+      // Update nextPoolIndex to be past all used indices (and reserved range)
+      this.nextPoolIndex = MIN_POOL_INDEX;
+      while (this.usedPoolIndices.has(this.nextPoolIndex)) this.nextPoolIndex++;
+
       console.log(`[ApiKeyStore] Loaded ${this.byKey.size} API keys`);
+      if (needsSave) {
+        console.log(`[ApiKeyStore] Migrated records with pool indices`);
+        this.save();
+      }
     } catch (e: any) {
       console.error(`[ApiKeyStore] Failed to load: ${e.message}`);
     }

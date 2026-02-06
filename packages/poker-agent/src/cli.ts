@@ -91,7 +91,7 @@ async function validateApiKey(serverUrl: string, apiKey: string): Promise<{ agen
 
 function generateAgentTs(): string {
   return `import "dotenv/config";
-import { PokerAgentClient, DecisionContext, PokerDecision } from "@chips-arena/poker-agent";
+import { PokerAgentClient, createStrategy } from "@chips-arena/poker-agent";
 
 const API_KEY = process.env.CHIPS_API_KEY;
 const SERVER = process.env.CHIPS_SERVER_URL || "${DEFAULT_SERVER}";
@@ -101,72 +101,24 @@ if (!API_KEY) {
   process.exit(1);
 }
 
-// ─── Your Decision Strategy ────────────────────────────────────
-// This is where your agent logic lives. Customize this function
-// to implement your own poker strategy.
+// ─── Strategy Configuration ────────────────────────────────────
+// Tune these knobs to shape your agent's personality.
+// All values 0–1. See docs: https://chips.rip/agents
 
-async function onDecision(ctx: DecisionContext): Promise<PokerDecision> {
-  const { validActions, toCall, yourChips, holeCards, communityCards, potOdds, bettingRound } = ctx;
+const strategy = createStrategy({
+  aggression: 0.5,      // 0 = passive, 1 = ultra-aggressive
+  tightness: 0.5,       // 0 = play everything, 1 = only premiums
+  bluffFrequency: 0.15, // 0 = never bluff, 1 = always bluff
+  positionAware: true,   // adjust play based on table position
+});
 
-  const canCheck = validActions.find(a => a.action === "check");
-  const canCall = validActions.find(a => a.action === "call");
-  const canRaise = validActions.find(a => a.action === "raise");
-
-  // Simple hand strength: paired hole cards or high cards
-  const ranks = holeCards.map(c => rankValue(c.rank));
-  const isPaired = ranks.length === 2 && ranks[0] === ranks[1];
-  const isHighCards = ranks.every(r => r >= 10);
-  const hasPair = isPaired || checkBoardPair(holeCards, communityCards);
-
-  // Free to play? Always check
-  if (canCheck) {
-    if (canRaise && (isPaired || isHighCards) && Math.random() < 0.3) {
-      return {
-        action: "raise",
-        amount: canRaise.minAmount,
-        reasoning: "Min-raise with decent hand",
-      };
-    }
-    return { action: "check", reasoning: "Free to check" };
-  }
-
-  // Cheap to call? (< 10% of chips)
-  if (canCall && toCall < yourChips * 0.1) {
-    return { action: "call", reasoning: "Cheap call" };
-  }
-
-  // Medium cost (10-30%): call with pairs, fold otherwise
-  if (canCall && toCall < yourChips * 0.3) {
-    if (hasPair || isHighCards) {
-      return { action: "call", reasoning: "Calling with pair/high cards" };
-    }
-    return { action: "fold", reasoning: "Too expensive without a hand" };
-  }
-
-  // Expensive: only call with strong hands
-  if (canCall && (isPaired || (hasPair && bettingRound !== "preflop"))) {
-    return { action: "call", reasoning: "Calling expensive with strong hand" };
-  }
-
-  return { action: "fold", reasoning: "Folding weak hand" };
-}
-
-function rankValue(rank: string): number {
-  const map: Record<string, number> = {
-    "2": 2, "3": 3, "4": 4, "5": 5, "6": 6, "7": 7, "8": 8,
-    "9": 9, "T": 10, "J": 11, "Q": 12, "K": 13, "A": 14, "10": 10,
-  };
-  return map[rank] || 0;
-}
-
-function checkBoardPair(holeCards: { rank: string }[], communityCards: { rank: string }[]): boolean {
-  for (const h of holeCards) {
-    for (const c of communityCards) {
-      if (h.rank === c.rank) return true;
-    }
-  }
-  return false;
-}
+// ─── Or write your own onDecision from scratch: ────────────────
+// import { DecisionContext, PokerDecision } from "@chips-arena/poker-agent";
+// async function strategy(ctx: DecisionContext): Promise<PokerDecision> {
+//   // ctx has: holeCards, communityCards, pot, potOdds, toCall, yourChips,
+//   //          position, bettingRound, validActions, players, timeoutMs
+//   return { action: "call", reasoning: "Custom logic here" };
+// }
 
 // ─── Agent Setup ───────────────────────────────────────────────
 
@@ -176,7 +128,7 @@ console.log(\`  Server: \${SERVER}\\n\`);
 const client = new PokerAgentClient({
   serverUrl: SERVER,
   apiKey: API_KEY,
-  onDecision,
+  onDecision: strategy,
   onGameEvent: (event) => {
     switch (event.type) {
       case "new_hand":

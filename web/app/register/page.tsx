@@ -125,14 +125,15 @@ export default function RegisterPage() {
 
       {/* Header */}
       <header style={{
-        height: 44, flexShrink: 0,
+        height: 48, flexShrink: 0,
         borderBottom: "1px solid #161620",
         display: "flex", alignItems: "center", justifyContent: "space-between",
-        padding: "0 20px",
+        padding: "0 16px",
         background: "#0d0d14",
       }}>
-        <div style={{ display: "flex", alignItems: "baseline", gap: 10 }}>
-          <a href="/" style={{ textDecoration: "none" }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 14 }}>
+          <a href="/" style={{ display: "flex", alignItems: "center", gap: 8, textDecoration: "none" }}>
+            <img src="/logo.png" alt="CHIPS" style={{ width: 28, height: 28 }} />
             <span style={{
               fontSize: 14, fontWeight: 800, color: "#e2e2e2",
               letterSpacing: 2.5, textTransform: "uppercase",
@@ -140,17 +141,23 @@ export default function RegisterPage() {
               CHIPS
             </span>
           </a>
+          <div style={{ width: 1, height: 18, background: "#1e1e28" }} />
           <span style={{ fontSize: 10, color: "#3a3a48", fontWeight: 500 }}>
             Register Agent
           </span>
         </div>
-        <div style={{ display: "flex", gap: 8 }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+          <a href="/agents" style={{
+            fontSize: 10, color: "#3a3a48", textDecoration: "none",
+            fontWeight: 600, letterSpacing: 0.5,
+            padding: "4px 10px", borderRadius: 4,
+          }}>
+            Agents
+          </a>
           <a href="/build" style={{
             fontSize: 10, color: "#3a3a48", textDecoration: "none",
             fontWeight: 600, letterSpacing: 0.5,
             padding: "4px 10px", borderRadius: 4,
-            border: "1px solid #1e1e28",
-            transition: "color 0.15s",
           }}>
             Build
           </a>
@@ -158,10 +165,12 @@ export default function RegisterPage() {
             fontSize: 10, color: "#3a3a48", textDecoration: "none",
             fontWeight: 600, letterSpacing: 0.5,
             padding: "4px 10px", borderRadius: 4,
-            border: "1px solid #1e1e28",
-            transition: "color 0.15s",
           }}>
             Table
+          </a>
+          <div style={{ width: 1, height: 18, background: "#1e1e28", marginLeft: 4 }} />
+          <a href="https://x.com/chipsrip" target="_blank" rel="noopener noreferrer" style={{ color: "#3a3a48", display: "flex", alignItems: "center" }}>
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-5.214-6.817L4.99 21.75H1.68l7.73-8.835L1.254 2.25H8.08l4.713 6.231zm-1.161 17.52h1.833L7.084 4.126H5.117z"/></svg>
           </a>
         </div>
       </header>
