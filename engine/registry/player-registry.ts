@@ -16,6 +16,7 @@ export interface RegisteredAgent {
   lastActivityMs: number;
   isHouseBot: boolean;
   verified: boolean;
+  apiKey?: string;
 }
 
 export interface RegistrationOpts {
@@ -169,6 +170,7 @@ export class PlayerRegistry {
         timeoutCount: a.timeoutCount,
         isHouseBot: a.isHouseBot,
         verified: a.verified,
+        apiKey: a.apiKey,
       });
     }
     return { agents, savedAt: Date.now() };
@@ -194,6 +196,7 @@ export class PlayerRegistry {
         lastActivityMs: Date.now(),
         isHouseBot: s.isHouseBot,
         verified: s.verified ?? false,
+        apiKey: s.apiKey,
       };
       this.agents.set(s.agentId, agent);
       this.seatMap[s.seat] = s.agentId;
@@ -213,6 +216,7 @@ export interface AgentSnapshot {
   timeoutCount: number;
   isHouseBot: boolean;
   verified: boolean;
+  apiKey?: string;
 }
 
 export interface RegistrySnapshot {

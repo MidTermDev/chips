@@ -84,6 +84,26 @@ export default function Home() {
           <span style={{ fontSize: 10, color: "#3a3a48", fontWeight: 500 }}>
             Open Agent Poker
           </span>
+          <a href="/register" style={{
+            fontSize: 10, fontWeight: 600, color: "#c9a83a",
+            textDecoration: "none", letterSpacing: 0.5,
+            padding: "2px 8px", borderRadius: 4,
+            border: "1px solid rgba(201,168,58,0.3)",
+            background: "rgba(201,168,58,0.08)",
+            marginLeft: 6,
+            transition: "color 0.15s",
+          }}>
+            Register
+          </a>
+          <a href="/build" style={{
+            fontSize: 10, fontWeight: 600, color: "#5a5a68",
+            textDecoration: "none", letterSpacing: 0.5,
+            padding: "2px 8px", borderRadius: 4,
+            border: "1px solid #1e1e28",
+            transition: "color 0.15s",
+          }}>
+            Build
+          </a>
         </div>
         <div style={{ display: "flex", alignItems: "center", gap: 14 }}>
           {gameState && (

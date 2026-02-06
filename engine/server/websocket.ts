@@ -4,6 +4,7 @@ import { URL } from "url";
 import { PlayerRegistry, RegisteredAgent } from "../registry/player-registry";
 import { ProfileStore } from "../registry/profile-store";
 import { VerificationStore } from "../registry/verification-store";
+import { ApiKeyStore } from "../registry/api-key-store";
 import {
   TURN_TIMEOUT_MS,
   MAX_TIMEOUTS,
@@ -43,6 +44,15 @@ interface PendingTurn {
   timer: NodeJS.Timeout;
 }
 
+// Rate limit: track registration attempts per IP
+interface RateLimitEntry {
+  count: number;
+  resetAt: number;
+}
+
+const RATE_LIMIT_MAX = 10;
+const RATE_LIMIT_WINDOW_MS = 60 * 60 * 1000; // 1 hour
+
 export class GameServer {
   private httpServer: HttpServer;
   private wss: WebSocketServer;
@@ -56,16 +66,19 @@ export class GameServer {
   private startTime: number = Date.now();
   private handCount: number = 0;
   private verificationStore: VerificationStore | null = null;
+  private apiKeyStore: ApiKeyStore | null = null;
+  private rateLimits: Map<string, RateLimitEntry> = new Map();
 
   // Callbacks for game loop integration
   onAgentRegistered?: (agent: RegisteredAgent) => void;
   onAgentLeft?: (agent: RegisteredAgent, reason: string) => void;
   onAgentVerified?: (agentId: string, seat: number) => void;
 
-  constructor(port: number, registry: PlayerRegistry, profileStore?: ProfileStore, verificationStore?: VerificationStore) {
+  constructor(port: number, registry: PlayerRegistry, profileStore?: ProfileStore, verificationStore?: VerificationStore, apiKeyStore?: ApiKeyStore) {
     this.registry = registry;
     this.profileStore = profileStore || null;
     this.verificationStore = verificationStore || null;
+    this.apiKeyStore = apiKeyStore || null;
 
     this.httpServer = createServer((req, res) => this.handleHttpRequest(req, res));
     this.wss = new WebSocketServer({ server: this.httpServer });
@@ -139,6 +152,16 @@ export class GameServer {
       return;
     }
 
+    if (req.method === "POST" && path === "/api/register") {
+      this.handleRegisterRequest(req, res);
+      return;
+    }
+
+    if (req.method === "POST" && path === "/api/validate-key") {
+      this.handleValidateKeyRequest(req, res);
+      return;
+    }
+
     if (req.method === "POST" && path === "/api/verify") {
       this.handleVerifyRequest(req, res);
       return;
@@ -155,6 +178,95 @@ export class GameServer {
     res.writeHead(404, { "Content-Type": "application/json" });
     res.end(JSON.stringify({ error: "Not found" }));
   }
+
+  // ─── POST /api/register ────────────────────────────────────
+
+  private handleRegisterRequest(req: IncomingMessage, res: ServerResponse): void {
+    if (!this.apiKeyStore) {
+      res.writeHead(500, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({ error: "Registration not available" }));
+      return;
+    }
+
+    // Rate limiting
+    const ip = req.headers["x-forwarded-for"]?.toString().split(",")[0].trim()
+      || req.socket.remoteAddress || "unknown";
+    if (!this.checkRateLimit(ip)) {
+      res.writeHead(429, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({ error: "Too many registrations. Try again later." }));
+      return;
+    }
+
+    let body = "";
+    req.on("data", (chunk) => { body += chunk; });
+    req.on("end", () => {
+      try {
+        const { name, style, avatar } = JSON.parse(body);
+        if (!name || typeof name !== "string") {
+          res.writeHead(400, { "Content-Type": "application/json" });
+          res.end(JSON.stringify({ error: "Missing 'name' in request body" }));
+          return;
+        }
+
+        const record = this.apiKeyStore!.register({ name, style, avatar });
+        res.writeHead(201, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({
+          apiKey: record.apiKey,
+          agentId: record.agentId,
+          name: record.name,
+          style: record.style,
+          avatar: record.avatar,
+        }));
+      } catch (e: any) {
+        const status = e.message === "Name already taken" ? 409 : 400;
+        res.writeHead(status, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({ error: e.message || "Invalid request" }));
+      }
+    });
+  }
+
+  // ─── POST /api/validate-key ────────────────────────────────
+
+  private handleValidateKeyRequest(req: IncomingMessage, res: ServerResponse): void {
+    if (!this.apiKeyStore) {
+      res.writeHead(500, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({ error: "API key validation not available" }));
+      return;
+    }
+
+    let body = "";
+    req.on("data", (chunk) => { body += chunk; });
+    req.on("end", () => {
+      try {
+        const { apiKey } = JSON.parse(body);
+        if (!apiKey || typeof apiKey !== "string") {
+          res.writeHead(400, { "Content-Type": "application/json" });
+          res.end(JSON.stringify({ error: "Missing 'apiKey' in request body" }));
+          return;
+        }
+
+        const record = this.apiKeyStore!.validateKey(apiKey);
+        if (!record) {
+          res.writeHead(401, { "Content-Type": "application/json" });
+          res.end(JSON.stringify({ error: "Invalid API key" }));
+          return;
+        }
+
+        res.writeHead(200, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({
+          agentId: record.agentId,
+          name: record.name,
+          style: record.style,
+          avatar: record.avatar,
+        }));
+      } catch {
+        res.writeHead(400, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({ error: "Invalid JSON body" }));
+      }
+    });
+  }
+
+  // ─── POST /api/verify (legacy, kept for compat) ────────────
 
   private handleVerifyRequest(req: IncomingMessage, res: ServerResponse): void {
     let body = "";
@@ -203,6 +315,23 @@ export class GameServer {
     });
   }
 
+  // ─── Rate limiting ─────────────────────────────────────────
+
+  private checkRateLimit(ip: string): boolean {
+    const now = Date.now();
+    const entry = this.rateLimits.get(ip);
+
+    if (!entry || now >= entry.resetAt) {
+      this.rateLimits.set(ip, { count: 1, resetAt: now + RATE_LIMIT_WINDOW_MS });
+      return true;
+    }
+
+    entry.count++;
+    return entry.count <= RATE_LIMIT_MAX;
+  }
+
+  // ─── WebSocket connection handling ─────────────────────────
+
   setHandInProgress(v: boolean): void {
     this.handInProgress = v;
 
@@ -234,36 +363,84 @@ export class GameServer {
       return;
     }
 
-    // Legacy: treat as spectator for backward compatibility
+    // Unknown role: treat as spectator
     this.spectators.add(ws);
     ws.on("close", () => this.spectators.delete(ws));
     ws.on("error", () => this.spectators.delete(ws));
   }
 
   private handleAgentConnection(ws: WebSocket, params: Record<string, string>): void {
-    const { agentId, name, style, avatar, wallet } = params;
+    const { apiKey } = params;
 
-    if (!agentId || !name) {
-      this.sendToWs(ws, "register_error", {
-        type: "register_error",
-        reason: "invalid_params",
-        message: "agentId and name are required query parameters",
+    // ─── API Key auth (required for all external agents) ─────
+    if (apiKey) {
+      const record = this.apiKeyStore?.getByKey(apiKey);
+      if (!record) {
+        this.sendToWs(ws, "register_error", {
+          type: "register_error",
+          reason: "invalid_api_key",
+          message: "Invalid API key. Register at chips.rip/register to get one.",
+        });
+        ws.close();
+        return;
+      }
+
+      const { agentId, name, style, avatar } = record;
+
+      // Check for reconnection
+      const existing = this.registry.getById(agentId);
+      if (existing) {
+        this.registry.reconnect(agentId, ws);
+        existing.sittingOut = false;
+        this.clearSitOutTimer(agentId);
+        console.log(`[GameServer] Agent ${name} reconnected to seat ${existing.seat}`);
+        this.sendToWs(ws, "register_ack", {
+          type: "register_ack",
+          seat: existing.seat,
+          agentId,
+          config: {
+            turnTimeoutMs: TURN_TIMEOUT_MS,
+            maxTimeouts: MAX_TIMEOUTS,
+            smallBlind: 500,
+            bigBlind: 1000,
+            maxPlayers: 8,
+          },
+          waitingForNextHand: this.handInProgress,
+        });
+        this.setupAgentListeners(ws, agentId);
+        return;
+      }
+
+      // New registration from API key
+      const result = this.registry.register({
+        agentId,
+        name,
+        style,
+        avatar,
+        ws,
       });
-      ws.close();
-      return;
-    }
 
-    // Check for reconnection
-    const existing = this.registry.getById(agentId);
-    if (existing) {
-      // Reconnect
-      this.registry.reconnect(agentId, ws);
-      existing.sittingOut = false;
-      this.clearSitOutTimer(agentId);
-      console.log(`[GameServer] Agent ${name} reconnected to seat ${existing.seat}`);
+      if (typeof result === "string") {
+        this.sendToWs(ws, "register_error", {
+          type: "register_error",
+          reason: result,
+          message: result === "table_full" ? "All 8 seats are occupied"
+            : result === "duplicate_id" ? "An agent with this ID is already connected"
+            : "Registration failed",
+        });
+        ws.close();
+        return;
+      }
+
+      // API key agents are auto-verified
+      result.verified = true;
+      result.apiKey = apiKey;
+
+      console.log(`[GameServer] Agent ${name} registered at seat ${result.seat} (API key)`);
+
       this.sendToWs(ws, "register_ack", {
         type: "register_ack",
-        seat: existing.seat,
+        seat: result.seat,
         agentId,
         config: {
           turnTimeoutMs: TURN_TIMEOUT_MS,
@@ -274,72 +451,38 @@ export class GameServer {
         },
         waitingForNextHand: this.handInProgress,
       });
+
+      // Broadcast join
+      this.broadcast("player_joined", {
+        type: "player_joined",
+        seat: result.seat,
+        agentId,
+        name: result.name,
+        style: result.style,
+        avatar: result.avatar,
+        chips: result.chips,
+      });
+
+      // Fire verified callback immediately (pool init)
+      this.onAgentVerified?.(agentId, result.seat);
+
+      if (this.handInProgress) {
+        this.pendingJoins.set(agentId, result);
+      } else {
+        this.onAgentRegistered?.(result);
+      }
+
       this.setupAgentListeners(ws, agentId);
       return;
     }
 
-    // New registration
-    const result = this.registry.register({
-      agentId,
-      name,
-      style,
-      avatar,
-      walletAddress: wallet,
-      ws,
+    // ─── No API key: reject ─────────────────────────────────
+    this.sendToWs(ws, "register_error", {
+      type: "register_error",
+      reason: "missing_credentials",
+      message: "API key required. Register at chips.rip/register to get one.",
     });
-
-    if (typeof result === "string") {
-      this.sendToWs(ws, "register_error", {
-        type: "register_error",
-        reason: result,
-        message: result === "table_full" ? "All 8 seats are occupied"
-          : result === "duplicate_id" ? "An agent with this ID is already connected"
-          : "Invalid registration parameters",
-      });
-      ws.close();
-      return;
-    }
-
-    console.log(`[GameServer] Agent ${name} registered at seat ${result.seat}`);
-
-    // Generate verification key if store is available
-    const verificationKey = this.verificationStore
-      ? this.verificationStore.generate(agentId, result.seat)
-      : undefined;
-
-    this.sendToWs(ws, "register_ack", {
-      type: "register_ack",
-      seat: result.seat,
-      agentId,
-      config: {
-        turnTimeoutMs: TURN_TIMEOUT_MS,
-        maxTimeouts: MAX_TIMEOUTS,
-        smallBlind: 500,
-        bigBlind: 1000,
-        maxPlayers: 8,
-      },
-      waitingForNextHand: this.handInProgress,
-      ...(verificationKey && { verificationKey }),
-    });
-
-    // Broadcast join to all
-    this.broadcast("player_joined", {
-      type: "player_joined",
-      seat: result.seat,
-      agentId,
-      name: result.name,
-      style: result.style,
-      avatar: result.avatar,
-      chips: result.chips,
-    });
-
-    if (this.handInProgress) {
-      this.pendingJoins.set(agentId, result);
-    } else {
-      this.onAgentRegistered?.(result);
-    }
-
-    this.setupAgentListeners(ws, agentId);
+    ws.close();
   }
 
   private setupAgentListeners(ws: WebSocket, agentId: string): void {
@@ -366,6 +509,12 @@ export class GameServer {
 
     switch (msg.type) {
       case "action": {
+        // Per-action API key validation
+        const agent = this.registry.getById(agentId);
+        if (agent?.apiKey && msg.apiKey !== agent.apiKey) {
+          break; // Silently ignore invalid action
+        }
+
         const pending = this.pendingTurns.get(agentId);
         if (pending) {
           clearTimeout(pending.timer);

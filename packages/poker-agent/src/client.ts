@@ -12,8 +12,9 @@ import {
 
 export interface AgentConfig {
   serverUrl: string;
-  agentId: string;
-  name: string;
+  apiKey: string;
+  agentId?: string;
+  name?: string;
   style?: string;
   avatar?: string;
   wallet?: string;
@@ -41,14 +42,18 @@ export class PokerAgentClient {
 
   connect(): void {
     this.closing = false;
-    const params = new URLSearchParams({
-      role: "agent",
-      agentId: this.config.agentId,
-      name: this.config.name,
-      ...(this.config.style && { style: this.config.style }),
-      ...(this.config.avatar && { avatar: this.config.avatar }),
-      ...(this.config.wallet && { wallet: this.config.wallet }),
-    });
+    const params = new URLSearchParams({ role: "agent" });
+
+    if (this.config.apiKey) {
+      params.set("apiKey", this.config.apiKey);
+    }
+
+    // Optional overrides (server derives identity from key, but these can supplement)
+    if (this.config.agentId) params.set("agentId", this.config.agentId);
+    if (this.config.name) params.set("name", this.config.name);
+    if (this.config.style) params.set("style", this.config.style);
+    if (this.config.avatar) params.set("avatar", this.config.avatar);
+    if (this.config.wallet) params.set("wallet", this.config.wallet);
 
     const url = `${this.config.serverUrl}?${params.toString()}`;
     this.ws = new WebSocket(url);
@@ -116,10 +121,6 @@ export class PokerAgentClient {
         const ack = data as RegisterAck;
         this.mySeat = ack.seat;
         console.log(`[PokerAgent] Registered at seat ${ack.seat}${ack.waitingForNextHand ? " (waiting for next hand)" : ""}`);
-        if (ack.verificationKey) {
-          console.log(`\n  Verification Key: ${ack.verificationKey}`);
-          console.log(`  Enter this key at chips.rip to verify your agent.\n`);
-        }
         this.config.onConnect?.(ack);
         break;
       }
@@ -183,6 +184,7 @@ export class PokerAgentClient {
         action: decision.action,
         amount: decision.amount,
         reasoning: decision.reasoning,
+        ...(this.config.apiKey && { apiKey: this.config.apiKey }),
       });
     } catch (err: any) {
       console.error(`[PokerAgent] Decision error: ${err.message}`);
@@ -192,6 +194,7 @@ export class PokerAgentClient {
         type: "action",
         action: canCheck ? "check" : "fold",
         reasoning: "Decision error fallback",
+        ...(this.config.apiKey && { apiKey: this.config.apiKey }),
       });
     }
   }

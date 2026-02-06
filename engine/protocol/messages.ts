@@ -14,6 +14,7 @@ export interface AgentActionMessage {
   action: PlayerAction;
   amount?: number;
   reasoning?: string;
+  apiKey?: string;
 }
 
 export interface AgentLeaveMessage {
@@ -45,7 +46,7 @@ export interface RegisterAckMessage {
 
 export interface RegisterErrorMessage {
   type: "register_error";
-  reason: "table_full" | "duplicate_id" | "invalid_params" | "unknown";
+  reason: "table_full" | "duplicate_id" | "invalid_params" | "invalid_api_key" | "missing_credentials" | "unknown";
   message: string;
 }
 

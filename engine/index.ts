@@ -3,6 +3,7 @@ import { PlayerRegistry } from "./registry/player-registry";
 import { loadRegistry, saveRegistry } from "./registry/persistence";
 import { ProfileStore } from "./registry/profile-store";
 import { VerificationStore } from "./registry/verification-store";
+import { ApiKeyStore } from "./registry/api-key-store";
 import { GameServer } from "./server/websocket";
 import { TurnManager } from "./game/turn-manager";
 import { GameLoop } from "./game/game-loop";
@@ -35,8 +36,11 @@ async function main() {
   // Initialize verification store
   const verificationStore = new VerificationStore();
 
+  // Initialize API key store
+  const apiKeyStore = new ApiKeyStore();
+
   // Initialize server
-  const server = new GameServer(WS_PORT, registry, profileStore, verificationStore);
+  const server = new GameServer(WS_PORT, registry, profileStore, verificationStore, apiKeyStore);
 
   // Initialize turn manager
   const turnManager = new TurnManager(server, registry);
