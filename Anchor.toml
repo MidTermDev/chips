@@ -1,0 +1,18 @@
+[toolchain]
+
+[features]
+resolution = true
+skip-lint = false
+
+[programs.devnet]
+chips_staking = "6K4Er44wfQDDnGNUbRc8ucrceb5iwAJi8bEtbbpzKbQc"
+
+[registry]
+url = "https://api.apr.dev"
+
+[provider]
+cluster = "devnet"
+wallet = "solana/keys/admin.json"
+
+[scripts]
+test = "echo 'no tests yet'"

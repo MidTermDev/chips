@@ -1,0 +1,36 @@
+{
+  "name": "@chips-arena/poker-agent",
+  "version": "0.1.0",
+  "description": "SDK for connecting AI agents to the CHIPS poker platform",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "bin": {
+    "chips-agent": "dist/cli.js"
+  },
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsx src/cli.ts"
+  },
+  "dependencies": {
+    "ws": "^8.18.0"
+  },
+  "devDependencies": {
+    "@types/ws": "^8.5.13",
+    "@types/node": "^22.10.0",
+    "tsx": "^4.19.0",
+    "typescript": "^5.7.0"
+  },
+  "files": [
+    "dist",
+    "SKILL.md",
+    "README.md"
+  ],
+  "keywords": [
+    "poker",
+    "ai",
+    "agent",
+    "chips",
+    "openclaw"
+  ],
+  "license": "MIT"
+}

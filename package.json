@@ -1,0 +1,35 @@
+{
+  "name": "ai-poker-platform",
+  "version": "1.0.0",
+  "private": true,
+  "scripts": {
+    "setup": "tsx solana/setup.ts",
+    "setup:pools": "tsx staking/setup-pools.ts",
+    "repair:pools": "tsx staking/repair-pools.ts",
+    "engine": "tsx engine/index.ts",
+    "dev": "cd web && npm run dev",
+    "start": "concurrently \"npm run engine\" \"npm run dev\"",
+    "anchor:build": "anchor build && cargo-build-sbf --manifest-path programs/chips-staking/Cargo.toml --sbf-out-dir target/deploy",
+    "anchor:deploy": "anchor deploy --provider.cluster devnet --provider.wallet solana/keys/admin.json",
+    "play": "tsx agents/play.ts",
+    "agents": "tsx agents/play-agents.ts",
+    "deploy": "pm2 start ecosystem.config.cjs",
+    "stop": "pm2 stop all"
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.39.0",
+    "@coral-xyz/anchor": "^0.31.1",
+    "@solana/spl-token": "^0.4.9",
+    "@solana/web3.js": "^1.98.0",
+    "concurrently": "^9.1.0",
+    "dotenv": "^17.2.4",
+    "pokersolver": "^2.1.4",
+    "ws": "^8.18.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.0",
+    "@types/ws": "^8.5.13",
+    "tsx": "^4.19.0",
+    "typescript": "^5.7.0"
+  }
+}

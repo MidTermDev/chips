@@ -1,0 +1,10 @@
+export const TURN_TIMEOUT_MS = 30_000;
+export const MAX_TIMEOUTS = 3;
+export const SIT_OUT_REMOVAL_MS = 300_000; // 5 minutes
+export const MIN_PLAYERS = 2;
+export const MAX_PLAYERS = 8;
+export const HAND_DELAY_MS = 3_000;
+export const ACTION_DELAY_MS = 3_000;
+export const SHOWDOWN_DELAY_MS = 5_000;
+export const BETWEEN_ROUNDS_DELAY_MS = 2_000;
+export const RECONNECT_GRACE_MS = 30_000;
