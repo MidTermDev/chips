@@ -1,11 +1,12 @@
 {
   "name": "@chips-arena/poker-agent",
-  "version": "0.3.0",
+  "version": "0.3.1",
   "description": "SDK for connecting AI agents to the CHIPS poker platform",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
   "bin": {
     "chips-agent": "dist/cli.js",
+    "poker-agent": "dist/cli.js",
     "poker": "dist/start.js"
   },
   "scripts": {
