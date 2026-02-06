@@ -102,46 +102,71 @@ export default function PokerTable({
   }, []);
 
   return (
-    <div style={{ padding: "50px 60px 40px" }}>
+    <div className="wood-bg" style={{ padding: "50px 60px 40px", flex: 1 }}>
       <div style={{ position: "relative", width: "100%", paddingBottom: "54%" }}>
 
-        {/* felt */}
+        {/* table rail (outer ring) */}
         <div style={{
-          position: "absolute", inset: "14% 10%",
+          position: "absolute", inset: "12% 8%",
           borderRadius: "50%",
-          background: "radial-gradient(ellipse at 50% 42%, #1b7340 0%, #15613a 35%, #105030 65%, #0c4226 100%)",
-          border: "9px solid #2f2118",
-          boxShadow: "inset 0 2px 50px rgba(0,0,0,0.3), 0 0 0 2px #4d3a2a, 0 8px 40px rgba(0,0,0,0.5)",
+          background: "linear-gradient(180deg, #3d2e1a 0%, #2a1e10 50%, #1e1508 100%)",
+          boxShadow: "0 8px 40px rgba(0,0,0,0.6), inset 0 2px 4px rgba(80,60,30,0.2), 0 0 0 3px rgba(60,45,20,0.3)",
+          padding: 10,
         }}>
+          {/* rail inner bevel */}
           <div style={{
-            position: "absolute", inset: 0,
-            display: "flex", flexDirection: "column",
-            alignItems: "center", justifyContent: "center", gap: 8,
+            width: "100%", height: "100%",
+            borderRadius: "50%",
+            background: "linear-gradient(180deg, #2f2118 0%, #241a10 100%)",
+            boxShadow: "inset 0 2px 8px rgba(0,0,0,0.5)",
+            padding: 3,
           }}>
-            <CommunityCards cards={gameState.communityCards} round={gameState.bettingRound} />
-            <PotDisplay pot={gameState.pot} />
-            {onLinkAgent && (
-              <button
-                onClick={onLinkAgent}
-                style={{
-                  background: "rgba(0,0,0,0.3)",
-                  border: "1px solid rgba(100,100,120,0.2)",
-                  borderRadius: 4,
-                  padding: "3px 10px",
-                  fontSize: 8,
-                  fontWeight: 700,
-                  textTransform: "uppercase",
-                  letterSpacing: 0.5,
-                  color: "#4a4a55",
-                  cursor: "pointer",
-                  transition: "color 0.15s",
-                }}
-                onMouseEnter={(e) => (e.currentTarget.style.color = "#8a8a95")}
-                onMouseLeave={(e) => (e.currentTarget.style.color = "#4a4a55")}
-              >
-                Link Agent
-              </button>
-            )}
+            {/* felt */}
+            <div style={{
+              width: "100%", height: "100%",
+              borderRadius: "50%",
+              background: "radial-gradient(ellipse at 50% 42%, #1b7340 0%, #15613a 35%, #105030 65%, #0c4226 100%)",
+              boxShadow: "inset 0 4px 30px rgba(0,0,0,0.35), inset 0 -2px 10px rgba(0,0,0,0.15)",
+              position: "relative",
+            }}>
+              {/* subtle felt texture overlay */}
+              <div style={{
+                position: "absolute", inset: 0,
+                borderRadius: "50%",
+                background: "repeating-conic-gradient(rgba(0,0,0,0.02) 0% 25%, transparent 0% 50%)",
+                backgroundSize: "4px 4px",
+              }} />
+              <div style={{
+                position: "absolute", inset: 0,
+                display: "flex", flexDirection: "column",
+                alignItems: "center", justifyContent: "center", gap: 8,
+              }}>
+                <CommunityCards cards={gameState.communityCards} round={gameState.bettingRound} />
+                <PotDisplay pot={gameState.pot} />
+                {onLinkAgent && (
+                  <button
+                    onClick={onLinkAgent}
+                    style={{
+                      background: "rgba(0,0,0,0.3)",
+                      border: "1px solid rgba(100,100,120,0.2)",
+                      borderRadius: 4,
+                      padding: "3px 10px",
+                      fontSize: 8,
+                      fontWeight: 700,
+                      textTransform: "uppercase",
+                      letterSpacing: 0.5,
+                      color: "#4a4a55",
+                      cursor: "pointer",
+                      transition: "color 0.15s",
+                    }}
+                    onMouseEnter={(e) => (e.currentTarget.style.color = "#8a8a95")}
+                    onMouseLeave={(e) => (e.currentTarget.style.color = "#4a4a55")}
+                  >
+                    Link Agent
+                  </button>
+                )}
+              </div>
+            </div>
           </div>
         </div>
 

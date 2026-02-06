@@ -20,6 +20,7 @@ interface Props {
 }
 
 const DECIMALS = 1e6;
+const QUICK_AMOUNTS = [100, 500, 1000, 5000];
 
 export default function BankrollPanel({
   agentIndex, agentName, pool, position, connected,
@@ -28,63 +29,21 @@ export default function BankrollPanel({
   const [depositAmount, setDepositAmount] = useState("");
   const [withdrawPct, setWithdrawPct] = useState(100);
   const [error, setError] = useState("");
+  const [activeSection, setActiveSection] = useState<"deposit" | "withdraw">("deposit");
 
-  /* ── Header ── */
-  const header = (
-    <div style={{
-      display: "flex", justifyContent: "space-between", alignItems: "center",
-      padding: "10px 14px", borderBottom: "1px solid #1a1a24",
-      background: "linear-gradient(180deg, rgba(30,92,58,0.06) 0%, transparent 100%)",
-    }}>
-      <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-        {stats && <AgentAvatar monogram={stats.avatar} index={stats.seat} size={24} />}
-        <div>
-          <div style={{ fontSize: 12, fontWeight: 700, color: "#e2e2e2" }}>
-            {agentName}
-          </div>
-          <div style={{ fontSize: 9, color: "#3a3a48" }}>
-            {stats?.style || "Bankroll Backing"}
-          </div>
-        </div>
-      </div>
-      <button
-        onClick={onClose}
-        style={{
-          background: "none", border: "none", color: "#3a3a48",
-          cursor: "pointer", fontSize: 14, padding: 4,
-        }}
-      >
-        &times;
-      </button>
-    </div>
-  );
+  const vaultEmpty = !pool || pool.totalAssets === 0;
 
-  if (!pool) {
-    return (
-      <div style={panelStyle}>
-        {header}
-        <div style={{ padding: 14, fontSize: 11, color: "#3a3a48" }}>
-          Pool not initialized yet. Verify this agent first to create a pool.
-        </div>
-      </div>
-    );
-  }
-
-  const vaultEmpty = pool.totalAssets === 0;
   const statusLabel = agentOnline === undefined ? null
-    : agentOnline && !vaultEmpty ? { text: "Active", color: "#34d399" }
-    : agentOnline && vaultEmpty ? { text: "Needs Backing", color: "#fbbf24" }
-    : !agentOnline && !vaultEmpty ? { text: "Offline", color: "#f87171" }
-    : { text: "Offline", color: "#4a4a55" };
+    : agentOnline && !vaultEmpty ? { text: "Playing", color: "#34d399", dot: true }
+    : agentOnline && vaultEmpty ? { text: "Needs Chips", color: "#fbbf24", dot: true }
+    : !agentOnline && !vaultEmpty ? { text: "Offline", color: "#f87171", dot: false }
+    : { text: "Offline", color: "#4a4a55", dot: false };
 
-  const sharePrice = pool.sharePrice;
-  const poolSizeDisplay = (pool.totalAssets / DECIMALS).toLocaleString(undefined, { maximumFractionDigits: 0 });
+  const sharePrice = pool?.sharePrice ?? 1;
+  const poolSize = pool ? pool.totalAssets / DECIMALS : 0;
   const userShares = position?.shares ?? 0;
   const userValue = position?.currentValue ?? 0;
-  const userValueDisplay = (userValue / DECIMALS).toLocaleString(undefined, { maximumFractionDigits: 0 });
   const pnl = position?.pnl ?? 0;
-  const pnlDisplay = (pnl / DECIMALS).toLocaleString(undefined, { maximumFractionDigits: 0 });
-  const pnlColor = pnl >= 0 ? "#34d399" : "#f87171";
 
   const handleDeposit = async () => {
     setError("");
@@ -111,147 +70,319 @@ export default function BankrollPanel({
   };
 
   return (
-    <div style={panelStyle}>
-      {header}
-
-      {/* Performance summary */}
-      {stats && stats.handsPlayed > 0 && (
-        <div style={{ padding: "10px 14px", borderBottom: "1px solid #1a1a24" }}>
-          <div style={{
-            display: "flex", justifyContent: "space-between", alignItems: "center",
-            marginBottom: 6,
-          }}>
-            <span style={sectionLabel}>Performance</span>
-            <span style={{
-              fontSize: 10, fontWeight: 700,
-              color: stats.totalPnL >= 0 ? "#34d399" : "#f87171",
-              fontVariantNumeric: "tabular-nums",
-            }}>
-              {stats.totalPnL >= 0 ? "+" : ""}{stats.totalPnL.toLocaleString()} P&amp;L
-            </span>
-          </div>
-          <div style={{ display: "flex", gap: 12 }}>
-            <MiniStat label="WR" value={`${stats.winRate.toFixed(0)}%`} />
-            <MiniStat label="VPIP" value={`${stats.vpip.toFixed(0)}%`} />
-            <MiniStat label="PFR" value={`${stats.pfr.toFixed(0)}%`} />
-            <MiniStat label="Hands" value={String(stats.handsPlayed)} />
-          </div>
-        </div>
-      )}
-
-      {/* Status + Pool stats */}
-      <div style={{ padding: "10px 14px", borderBottom: "1px solid #1a1a24" }}>
-        {statusLabel && (
-          <div style={{
-            display: "flex", alignItems: "center", gap: 5, marginBottom: 6,
-          }}>
-            <div style={{
-              width: 6, height: 6, borderRadius: "50%",
-              background: statusLabel.color,
-            }} />
-            <span style={{ fontSize: 10, fontWeight: 700, color: statusLabel.color }}>
-              {statusLabel.text}
-            </span>
-            {!agentOnline && !vaultEmpty && (
-              <span style={{ fontSize: 9, color: "#4a4a55", marginLeft: 4 }}>
-                Backers can still withdraw
-              </span>
-            )}
-          </div>
-        )}
-        {vaultEmpty && (
-          <div style={{ fontSize: 10, color: "#fbbf24", marginBottom: 6 }}>
-            Agent needs backing to play. Deposit CHIPS below.
-          </div>
-        )}
-        <Row label="Pool Size" value={`${poolSizeDisplay} CHIPS`} />
-        <Row label="Share Price" value={sharePrice.toFixed(6)} />
-        <Row label="Fee" value={`${pool.feeBasisPoints / 100}%`} />
-        {pool.paused && (
-          <div style={{ fontSize: 10, color: "#f87171", fontWeight: 700, marginTop: 4 }}>
-            PAUSED
-          </div>
-        )}
-      </div>
-
-      {/* User position */}
-      {connected && position && userShares > 0 && (
-        <div style={{ padding: "10px 14px", borderBottom: "1px solid #1a1a24" }}>
-          <div style={{ ...sectionLabel, marginBottom: 6 }}>Your Position</div>
-          <Row label="Shares" value={(userShares / DECIMALS).toLocaleString(undefined, { maximumFractionDigits: 0 })} />
-          <Row label="Value" value={`${userValueDisplay} CHIPS`} />
-          <Row label="P&L" value={`${pnl >= 0 ? "+" : ""}${pnlDisplay}`} valueColor={pnlColor} />
-        </div>
-      )}
-
-      {/* Deposit / Withdraw */}
-      {connected ? (
-        <div style={{ padding: "10px 14px" }}>
-          <div style={{ marginBottom: 10 }}>
-            <div style={{ ...sectionLabel, marginBottom: 6 }}>Deposit</div>
-            <div style={{ display: "flex", gap: 6 }}>
-              <input
-                type="number"
-                placeholder="CHIPS amount"
-                value={depositAmount}
-                onChange={(e) => setDepositAmount(e.target.value)}
-                style={inputStyle}
-              />
-              <button
-                onClick={handleDeposit}
-                disabled={txPending || pool.paused}
-                style={{
-                  ...btnStyle,
-                  background: txPending ? "#1a1a24" : "#1e5c3a",
-                  color: txPending ? "#3a3a48" : "#34d399",
-                  opacity: txPending || pool.paused ? 0.5 : 1,
-                }}
-              >
-                {txPending ? "..." : "Back"}
-              </button>
+    <div style={{
+      background: "#0e0e16",
+      overflow: "hidden",
+      width: "100%",
+      display: "flex",
+      flexDirection: "column",
+      height: "100%",
+    }}>
+      {/* Header */}
+      <div style={{
+        padding: "16px 18px 14px",
+        borderBottom: "1px solid #1a1a24",
+        background: "linear-gradient(180deg, rgba(201,168,58,0.04) 0%, transparent 100%)",
+      }}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+            {stats && <AgentAvatar monogram={stats.avatar} index={stats.seat} size={36} />}
+            <div>
+              <div style={{ fontSize: 14, fontWeight: 800, color: "#f0f0f0" }}>
+                {agentName}
+              </div>
+              <div style={{ display: "flex", alignItems: "center", gap: 6, marginTop: 2 }}>
+                <span style={{ fontSize: 10, color: "#5a5a68" }}>
+                  {stats?.style || "Seat " + agentIndex}
+                </span>
+                {statusLabel && (
+                  <span style={{
+                    display: "inline-flex", alignItems: "center", gap: 4,
+                    fontSize: 9, fontWeight: 700, color: statusLabel.color,
+                    padding: "1px 6px", borderRadius: 4,
+                    background: `${statusLabel.color}15`,
+                  }}>
+                    {statusLabel.dot && (
+                      <span style={{
+                        width: 5, height: 5, borderRadius: "50%",
+                        background: statusLabel.color,
+                        display: "inline-block",
+                      }} />
+                    )}
+                    {statusLabel.text}
+                  </span>
+                )}
+              </div>
             </div>
           </div>
+          <button
+            onClick={onClose}
+            style={{
+              background: "#161620", border: "1px solid #1e1e28", borderRadius: 6,
+              color: "#5a5a68", cursor: "pointer", fontSize: 12,
+              width: 28, height: 28,
+              display: "flex", alignItems: "center", justifyContent: "center",
+            }}
+          >
+            &times;
+          </button>
+        </div>
+      </div>
 
-          {userShares > 0 && (
-            <div>
-              <div style={{ ...sectionLabel, marginBottom: 6 }}>Withdraw</div>
-              <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
-                <select
-                  value={withdrawPct}
-                  onChange={(e) => setWithdrawPct(Number(e.target.value))}
-                  style={inputStyle}
-                >
-                  <option value={25}>25%</option>
-                  <option value={50}>50%</option>
-                  <option value={75}>75%</option>
-                  <option value={100}>100%</option>
-                </select>
-                <button
-                  onClick={handleWithdraw}
-                  disabled={txPending}
-                  style={{
-                    ...btnStyle,
-                    background: txPending ? "#1a1a24" : "#5c1e1e",
-                    color: txPending ? "#3a3a48" : "#f87171",
-                    opacity: txPending ? 0.5 : 1,
-                  }}
-                >
-                  {txPending ? "..." : "Exit"}
-                </button>
+      {/* Quick stats */}
+      {stats && stats.handsPlayed > 0 && (
+        <div style={{
+          display: "grid", gridTemplateColumns: "1fr 1fr 1fr 1fr",
+          gap: 1, background: "#1a1a24",
+          borderBottom: "1px solid #1a1a24",
+        }}>
+          <QuickStat label="W/R" value={`${stats.winRate.toFixed(0)}%`} color={stats.winRate > 50 ? "#34d399" : "#c8c8c8"} />
+          <QuickStat label="P&L" value={`${stats.totalPnL >= 0 ? "+" : ""}${formatCompact(stats.totalPnL)}`} color={stats.totalPnL >= 0 ? "#34d399" : "#f87171"} />
+          <QuickStat label="VPIP" value={`${stats.vpip.toFixed(0)}%`} />
+          <QuickStat label="Hands" value={String(stats.handsPlayed)} />
+        </div>
+      )}
+
+      {!pool ? (
+        <div style={{ padding: "24px 18px", textAlign: "center" }}>
+          <div style={{ fontSize: 24, marginBottom: 8, opacity: 0.3 }}>
+            <svg width="32" height="32" viewBox="0 0 24 24" fill="none" style={{ display: "inline-block" }}>
+              <circle cx="12" cy="12" r="10" stroke="#4a4a55" strokeWidth="1.5"/>
+              <path d="M12 6v6l4 2" stroke="#4a4a55" strokeWidth="1.5" strokeLinecap="round"/>
+            </svg>
+          </div>
+          <div style={{ fontSize: 12, color: "#4a4a55", fontWeight: 600 }}>
+            Pool not initialized yet
+          </div>
+          <div style={{ fontSize: 10, color: "#3a3a48", marginTop: 4, lineHeight: 1.5 }}>
+            The agent needs to be verified before backers can deposit.
+          </div>
+        </div>
+      ) : (
+        <>
+          {/* Pool overview */}
+          <div style={{ padding: "14px 18px", borderBottom: "1px solid #1a1a24" }}>
+            <div style={{
+              display: "grid", gridTemplateColumns: "1fr 1fr",
+              gap: 8,
+            }}>
+              <InfoBox label="Pool Bankroll" value={`${formatCompact(poolSize)}`} unit="CHIPS" />
+              <InfoBox label="Share Price" value={sharePrice.toFixed(4)} />
+            </div>
+
+            {/* Your position */}
+            {connected && userShares > 0 && (
+              <div style={{
+                marginTop: 10, padding: "10px 12px",
+                borderRadius: 8,
+                background: "rgba(201,168,58,0.04)",
+                border: "1px solid rgba(201,168,58,0.1)",
+              }}>
+                <div style={{ fontSize: 9, fontWeight: 700, color: "#5a5a68", textTransform: "uppercase", letterSpacing: 0.8, marginBottom: 6 }}>
+                  Your Position
+                </div>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline" }}>
+                  <span style={{ fontSize: 12, color: "#c8c8c8" }}>
+                    {formatCompact(userValue / DECIMALS)} <span style={{ fontSize: 9, color: "#4a4a55" }}>CHIPS</span>
+                  </span>
+                  <span style={{
+                    fontSize: 11, fontWeight: 700,
+                    color: pnl >= 0 ? "#34d399" : "#f87171",
+                    fontVariantNumeric: "tabular-nums",
+                  }}>
+                    {pnl >= 0 ? "+" : ""}{formatCompact(pnl / DECIMALS)} P&L
+                  </span>
+                </div>
+              </div>
+            )}
+          </div>
+
+          {/* Action area */}
+          {connected ? (
+            <div style={{ padding: "14px 18px", flex: 1 }}>
+              {/* Tab toggle */}
+              <div style={{
+                display: "flex", borderRadius: 8, overflow: "hidden",
+                border: "1px solid #1e1e28",
+                marginBottom: 14,
+              }}>
+                <TabBtn
+                  label="Deposit"
+                  active={activeSection === "deposit"}
+                  onClick={() => setActiveSection("deposit")}
+                />
+                <TabBtn
+                  label="Withdraw"
+                  active={activeSection === "withdraw"}
+                  disabled={userShares === 0}
+                  onClick={() => setActiveSection("withdraw")}
+                />
+              </div>
+
+              {activeSection === "deposit" ? (
+                <div>
+                  {vaultEmpty && (
+                    <div style={{
+                      padding: "8px 10px", borderRadius: 6, marginBottom: 12,
+                      background: "rgba(251,191,36,0.06)",
+                      border: "1px solid rgba(251,191,36,0.15)",
+                      fontSize: 10, color: "#fbbf24", lineHeight: 1.5,
+                    }}>
+                      This agent has no chips. Deposit to fund their bankroll and earn returns when they win.
+                    </div>
+                  )}
+
+                  {/* Quick amount buttons */}
+                  <div style={{
+                    display: "flex", gap: 6, marginBottom: 10,
+                  }}>
+                    {QUICK_AMOUNTS.map((amt) => (
+                      <button
+                        key={amt}
+                        onClick={() => setDepositAmount(String(amt))}
+                        style={{
+                          flex: 1, padding: "6px 0", borderRadius: 6,
+                          background: depositAmount === String(amt) ? "rgba(30,92,58,0.2)" : "#0a0a12",
+                          border: depositAmount === String(amt) ? "1px solid rgba(30,92,58,0.4)" : "1px solid #1a1a24",
+                          color: depositAmount === String(amt) ? "#34d399" : "#5a5a68",
+                          fontSize: 10, fontWeight: 700, cursor: "pointer",
+                          transition: "all 0.15s",
+                        }}
+                      >
+                        {formatCompact(amt)}
+                      </button>
+                    ))}
+                  </div>
+
+                  <div style={{ display: "flex", gap: 8 }}>
+                    <input
+                      type="number"
+                      placeholder="Custom amount"
+                      value={depositAmount}
+                      onChange={(e) => setDepositAmount(e.target.value)}
+                      style={{
+                        flex: 1, background: "#0a0a12", border: "1px solid #1e1e28",
+                        borderRadius: 8, padding: "10px 12px", color: "#e2e2e2",
+                        fontSize: 13, outline: "none", minWidth: 0,
+                        fontVariantNumeric: "tabular-nums",
+                      }}
+                    />
+                    <button
+                      onClick={handleDeposit}
+                      disabled={txPending || pool.paused}
+                      style={{
+                        padding: "10px 20px", borderRadius: 8, border: "none",
+                        background: txPending || pool.paused ? "#1a1a24" : "linear-gradient(135deg, #1e5c3a 0%, #1a7a42 100%)",
+                        color: txPending || pool.paused ? "#3a3a48" : "#fff",
+                        fontSize: 12, fontWeight: 800, cursor: txPending || pool.paused ? "not-allowed" : "pointer",
+                        textTransform: "uppercase", letterSpacing: 0.5,
+                        transition: "all 0.15s",
+                        boxShadow: txPending || pool.paused ? "none" : "0 2px 8px rgba(30,92,58,0.3)",
+                      }}
+                    >
+                      {txPending ? "..." : "Back"}
+                    </button>
+                  </div>
+
+                  <div style={{ fontSize: 9, color: "#3a3a48", marginTop: 8, lineHeight: 1.5 }}>
+                    You receive pool shares proportional to your deposit. {pool.feeBasisPoints > 0 ? `${pool.feeBasisPoints / 100}% fee applies.` : ""}
+                  </div>
+                </div>
+              ) : (
+                <div>
+                  {/* Withdraw percentage */}
+                  <div style={{ marginBottom: 12 }}>
+                    <div style={{
+                      display: "flex", justifyContent: "space-between", alignItems: "center",
+                      marginBottom: 8,
+                    }}>
+                      <span style={{ fontSize: 11, color: "#8a8a95", fontWeight: 600 }}>
+                        Withdraw {withdrawPct}%
+                      </span>
+                      <span style={{ fontSize: 10, color: "#4a4a55", fontVariantNumeric: "tabular-nums" }}>
+                        ~{formatCompact(Math.floor(userValue * withdrawPct / 100 / DECIMALS))} CHIPS
+                      </span>
+                    </div>
+
+                    {/* Percentage buttons */}
+                    <div style={{ display: "flex", gap: 6 }}>
+                      {[25, 50, 75, 100].map((pct) => (
+                        <button
+                          key={pct}
+                          onClick={() => setWithdrawPct(pct)}
+                          style={{
+                            flex: 1, padding: "8px 0", borderRadius: 6,
+                            background: withdrawPct === pct ? "rgba(248,113,113,0.1)" : "#0a0a12",
+                            border: withdrawPct === pct ? "1px solid rgba(248,113,113,0.3)" : "1px solid #1a1a24",
+                            color: withdrawPct === pct ? "#f87171" : "#5a5a68",
+                            fontSize: 11, fontWeight: 700, cursor: "pointer",
+                            transition: "all 0.15s",
+                          }}
+                        >
+                          {pct}%
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
+                  <button
+                    onClick={handleWithdraw}
+                    disabled={txPending}
+                    style={{
+                      width: "100%", padding: "10px 0", borderRadius: 8, border: "none",
+                      background: txPending ? "#1a1a24" : "linear-gradient(135deg, #5c1e1e 0%, #7a2a2a 100%)",
+                      color: txPending ? "#3a3a48" : "#fff",
+                      fontSize: 12, fontWeight: 800, cursor: txPending ? "not-allowed" : "pointer",
+                      textTransform: "uppercase", letterSpacing: 0.5,
+                      transition: "all 0.15s",
+                      boxShadow: txPending ? "none" : "0 2px 8px rgba(92,30,30,0.3)",
+                    }}
+                  >
+                    {txPending ? "Processing..." : "Withdraw"}
+                  </button>
+
+                  {!agentOnline && (
+                    <div style={{ fontSize: 9, color: "#4a4a55", marginTop: 8, lineHeight: 1.5 }}>
+                      Agent is offline, but you can still withdraw your share of the pool.
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {error && (
+                <div style={{
+                  padding: "8px 10px", borderRadius: 6, marginTop: 10,
+                  background: "rgba(248,113,113,0.08)",
+                  border: "1px solid rgba(248,113,113,0.15)",
+                  fontSize: 10, color: "#f87171",
+                }}>
+                  {error}
+                </div>
+              )}
+            </div>
+          ) : (
+            <div style={{
+              padding: "24px 18px", textAlign: "center",
+            }}>
+              <div style={{ fontSize: 12, color: "#5a5a68", fontWeight: 600, marginBottom: 4 }}>
+                Connect your wallet to back this agent
+              </div>
+              <div style={{ fontSize: 10, color: "#3a3a48", lineHeight: 1.5 }}>
+                Deposit CHIPS tokens to fund their bankroll and earn a share of their winnings.
               </div>
             </div>
           )}
 
-          {error && (
-            <div style={{ fontSize: 10, color: "#f87171", marginTop: 8 }}>
-              {error}
+          {pool.paused && (
+            <div style={{
+              padding: "8px 18px", background: "rgba(248,113,113,0.06)",
+              borderTop: "1px solid rgba(248,113,113,0.15)",
+              fontSize: 10, color: "#f87171", fontWeight: 700, textAlign: "center",
+            }}>
+              POOL PAUSED
             </div>
           )}
-        </div>
-      ) : (
-        <div style={{ padding: "10px 14px", fontSize: 11, color: "#3a3a48" }}>
-          Connect wallet to back this agent
-        </div>
+        </>
       )}
     </div>
   );
@@ -259,67 +390,58 @@ export default function BankrollPanel({
 
 /* ── Sub-components ── */
 
-function MiniStat({ label, value }: { label: string; value: string }) {
+function QuickStat({ label, value, color }: { label: string; value: string; color?: string }) {
   return (
-    <div>
-      <div style={{ fontSize: 8, color: "#3a3a48", fontWeight: 600, textTransform: "uppercase", letterSpacing: 0.3 }}>
+    <div style={{
+      padding: "8px 0", textAlign: "center", background: "#0e0e16",
+    }}>
+      <div style={{ fontSize: 8, color: "#3a3a48", fontWeight: 700, textTransform: "uppercase", letterSpacing: 0.5 }}>
         {label}
       </div>
-      <div style={{ fontSize: 10, fontWeight: 700, color: "#8a8a95", fontVariantNumeric: "tabular-nums" }}>
+      <div style={{ fontSize: 11, fontWeight: 800, color: color || "#8a8a95", fontVariantNumeric: "tabular-nums" }}>
         {value}
       </div>
     </div>
   );
 }
 
-function Row({ label, value, valueColor }: { label: string; value: string; valueColor?: string }) {
+function InfoBox({ label, value, unit }: { label: string; value: string; unit?: string }) {
   return (
-    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 3 }}>
-      <span style={{ fontSize: 10, color: "#4a4a55" }}>{label}</span>
-      <span style={{ fontSize: 10, fontWeight: 600, color: valueColor || "#8a8a95", fontVariantNumeric: "tabular-nums" }}>
+    <div style={{
+      padding: "8px 10px", borderRadius: 6,
+      background: "#0a0a12", border: "1px solid #161620",
+    }}>
+      <div style={{ fontSize: 8, color: "#3a3a48", fontWeight: 700, textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 2 }}>
+        {label}
+      </div>
+      <div style={{ fontSize: 14, fontWeight: 800, color: "#c8c8c8", fontVariantNumeric: "tabular-nums" }}>
         {value}
-      </span>
+        {unit && <span style={{ fontSize: 9, color: "#4a4a55", marginLeft: 3 }}>{unit}</span>}
+      </div>
     </div>
   );
 }
 
-/* ── Styles ── */
+function TabBtn({ label, active, disabled, onClick }: { label: string; active: boolean; disabled?: boolean; onClick: () => void }) {
+  return (
+    <button
+      onClick={onClick}
+      disabled={disabled}
+      style={{
+        flex: 1, padding: "8px 0", border: "none",
+        background: active ? "#161620" : "transparent",
+        color: disabled ? "#2a2a38" : active ? "#e2e2e2" : "#5a5a68",
+        fontSize: 11, fontWeight: 700, cursor: disabled ? "not-allowed" : "pointer",
+        transition: "all 0.15s",
+      }}
+    >
+      {label}
+    </button>
+  );
+}
 
-const panelStyle: React.CSSProperties = {
-  background: "#0e0e16",
-  overflow: "hidden",
-  width: "100%",
-};
-
-const sectionLabel: React.CSSProperties = {
-  fontSize: 9,
-  color: "#2a2a38",
-  fontWeight: 700,
-  textTransform: "uppercase",
-  letterSpacing: 1,
-};
-
-const inputStyle: React.CSSProperties = {
-  flex: 1,
-  background: "#0a0a12",
-  border: "1px solid #1a1a24",
-  borderRadius: 4,
-  padding: "6px 8px",
-  color: "#c8c8c8",
-  fontSize: 11,
-  outline: "none",
-  minWidth: 0,
-};
-
-const btnStyle: React.CSSProperties = {
-  border: "none",
-  borderRadius: 4,
-  padding: "6px 14px",
-  fontSize: 10,
-  fontWeight: 700,
-  textTransform: "uppercase",
-  letterSpacing: 0.5,
-  cursor: "pointer",
-  whiteSpace: "nowrap",
-  transition: "opacity 0.15s",
-};
+function formatCompact(n: number): string {
+  if (Math.abs(n) >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`;
+  if (Math.abs(n) >= 1_000) return `${(n / 1_000).toFixed(0)}K`;
+  return n.toLocaleString();
+}

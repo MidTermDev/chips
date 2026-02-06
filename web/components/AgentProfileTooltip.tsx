@@ -23,12 +23,6 @@ function formatNum(n: number): string {
   return n.toLocaleString();
 }
 
-function streakLabel(streak: number): string {
-  if (streak > 0) return `${streak}W`;
-  if (streak < 0) return `${Math.abs(streak)}L`;
-  return "-";
-}
-
 export default function AgentProfileTooltip({
   player, stats, pool, seatIndex, onBackClick, onMouseEnter, onMouseLeave,
 }: Props) {
@@ -47,8 +41,15 @@ export default function AgentProfileTooltip({
   })();
 
   const poolSize = pool ? pool.totalAssets / DECIMALS : 0;
-  const sharePrice = pool ? pool.sharePrice : 1;
-  const pnlColor = stats.totalPnL >= 0 ? "#34d399" : "#f87171";
+  const pnl = stats.totalPnL;
+  const pnlColor = pnl >= 0 ? "#34d399" : "#f87171";
+  const pnlSign = pnl >= 0 ? "+" : "";
+
+  const streakText = stats.currentStreak > 0
+    ? `${stats.currentStreak}W streak`
+    : stats.currentStreak < 0
+    ? `${Math.abs(stats.currentStreak)}L streak`
+    : "";
   const streakColor = stats.currentStreak > 0 ? "#34d399" : stats.currentStreak < 0 ? "#f87171" : "#4a4a55";
 
   return (
@@ -59,131 +60,164 @@ export default function AgentProfileTooltip({
       style={{
         position: "absolute",
         ...posStyle,
-        width: 260,
-        background: "#0e0e16",
-        border: "1px solid #1e1e28",
-        borderRadius: 12,
-        boxShadow: "0 8px 32px rgba(0,0,0,0.6)",
-        padding: "14px 16px",
+        width: 280,
+        background: "linear-gradient(180deg, #111119 0%, #0c0c14 100%)",
+        border: "1px solid #1e1e2a",
+        borderRadius: 14,
+        boxShadow: "0 12px 48px rgba(0,0,0,0.7), 0 0 0 1px rgba(255,255,255,0.03)",
+        overflow: "hidden",
         zIndex: 100,
         cursor: "default",
       }}
     >
-      {/* Header */}
-      <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 10 }}>
-        <AgentAvatar monogram={stats.avatar} index={stats.seat} size={32} />
-        <div style={{ flex: 1 }}>
-          <div style={{ fontSize: 13, fontWeight: 700, color: "#e2e2e2" }}>
-            {stats.name}
+      {/* Header with accent bar */}
+      <div style={{
+        padding: "16px 18px 14px",
+        background: "linear-gradient(180deg, rgba(201,168,58,0.06) 0%, transparent 100%)",
+        borderBottom: "1px solid #1a1a24",
+      }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+          <AgentAvatar monogram={player.avatar || stats.avatar} index={stats.seat} size={44} />
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <div style={{ fontSize: 15, fontWeight: 800, color: "#f0f0f0", letterSpacing: -0.2 }}>
+              {stats.name}
+            </div>
+            <div style={{ fontSize: 10, color: "#6a6a78", fontWeight: 600, marginTop: 1 }}>
+              {stats.style}
+            </div>
           </div>
-          <div style={{ fontSize: 9, color: "#4a4a55", fontWeight: 600 }}>
-            {stats.style}
+          {/* P&L badge */}
+          <div style={{
+            padding: "4px 10px", borderRadius: 6,
+            background: pnl >= 0 ? "rgba(52,211,153,0.1)" : "rgba(248,113,113,0.1)",
+            border: `1px solid ${pnl >= 0 ? "rgba(52,211,153,0.2)" : "rgba(248,113,113,0.2)"}`,
+          }}>
+            <div style={{ fontSize: 13, fontWeight: 800, color: pnlColor, fontVariantNumeric: "tabular-nums" }}>
+              {pnlSign}{formatNum(pnl)}
+            </div>
           </div>
         </div>
+
+        {/* Description */}
+        {stats.description && (
+          <div style={{
+            fontSize: 11, color: "#4a4a58", lineHeight: 1.4,
+            marginTop: 10, fontStyle: "italic",
+          }}>
+            &ldquo;{stats.description}&rdquo;
+          </div>
+        )}
       </div>
 
-      {/* Description */}
-      <div style={{
-        fontSize: 10, color: "#3a3a48", lineHeight: 1.4,
-        marginBottom: 12, fontStyle: "italic",
-      }}>
-        &ldquo;{stats.description}&rdquo;
-      </div>
-
-      {/* Stats grid */}
-      <div style={{
-        display: "grid", gridTemplateColumns: "1fr 1fr",
-        gap: "6px 12px", marginBottom: 12,
-      }}>
-        <StatCell label="Win Rate" value={`${stats.winRate.toFixed(0)}%`} />
-        <StatCell label="VPIP" value={`${stats.vpip.toFixed(0)}%`} />
-        <StatCell label="PFR" value={`${stats.pfr.toFixed(0)}%`} />
-        <StatCell label="AF" value={stats.aggressionFactor.toFixed(1)} />
-        <StatCell label="Streak" value={streakLabel(stats.currentStreak)} valueColor={streakColor} />
-        <StatCell label="Hands" value={String(stats.handsPlayed)} />
-      </div>
-
-      {/* P&L */}
-      <div style={{
-        display: "flex", justifyContent: "space-between", alignItems: "center",
-        padding: "8px 0", borderTop: "1px solid #1a1a24", marginBottom: 8,
-      }}>
-        <div>
-          <div style={{ fontSize: 9, color: "#3a3a48", fontWeight: 600, textTransform: "uppercase", letterSpacing: 0.5 }}>
-            P&amp;L
-          </div>
-          <div style={{ fontSize: 14, fontWeight: 700, color: pnlColor, fontVariantNumeric: "tabular-nums" }}>
-            {stats.totalPnL >= 0 ? "+" : ""}{formatNum(stats.totalPnL)}
-          </div>
-        </div>
-        <div style={{ textAlign: "right" }}>
-          <div style={{ fontSize: 9, color: "#3a3a48", fontWeight: 600, textTransform: "uppercase", letterSpacing: 0.5 }}>
-            Biggest Pot
-          </div>
-          <div style={{ fontSize: 11, fontWeight: 600, color: "#8a8a95", fontVariantNumeric: "tabular-nums" }}>
-            {formatNum(stats.biggestPotWon)}
-          </div>
-        </div>
-      </div>
-
-      {/* Pool info */}
-      {pool && (
+      {/* Stats */}
+      <div style={{ padding: "12px 18px" }}>
         <div style={{
-          padding: "8px 0", borderTop: "1px solid #1a1a24", marginBottom: 10,
+          display: "grid", gridTemplateColumns: "1fr 1fr 1fr",
+          gap: "10px 8px",
         }}>
-          <div style={{
-            display: "flex", justifyContent: "space-between", alignItems: "center",
-            marginBottom: 4,
-          }}>
-            <span style={{ fontSize: 10, color: "#4a4a55" }}>Pool</span>
-            <span style={{ fontSize: 10, fontWeight: 600, color: "#8a8a95", fontVariantNumeric: "tabular-nums" }}>
-              {formatNum(poolSize)} CHIPS
-            </span>
-          </div>
-          <div style={{
-            display: "flex", justifyContent: "space-between", alignItems: "center",
-          }}>
-            <span style={{ fontSize: 10, color: "#4a4a55" }}>Share Price</span>
-            <span style={{ fontSize: 10, fontWeight: 600, color: "#8a8a95", fontVariantNumeric: "tabular-nums" }}>
-              {sharePrice.toFixed(3)}
-            </span>
-          </div>
+          <StatPill label="Win Rate" value={`${stats.winRate.toFixed(0)}%`} accent={stats.winRate > 50} />
+          <StatPill label="VPIP" value={`${stats.vpip.toFixed(0)}%`} />
+          <StatPill label="PFR" value={`${stats.pfr.toFixed(0)}%`} />
+          <StatPill label="Aggression" value={stats.aggressionFactor.toFixed(1)} />
+          <StatPill label="Hands" value={String(stats.handsPlayed)} />
+          <StatPill label="Best Pot" value={formatNum(stats.biggestPotWon)} accent />
         </div>
-      )}
 
-      {/* Back button */}
-      <button
-        onClick={(e) => { e.stopPropagation(); onBackClick(); }}
-        style={{
-          width: "100%",
-          padding: "8px 0",
-          borderRadius: 6,
-          border: "1px solid #1e5c3a",
-          background: "rgba(30,92,58,0.15)",
-          color: "#34d399",
-          fontSize: 11,
-          fontWeight: 700,
-          textTransform: "uppercase",
-          letterSpacing: 0.5,
-          cursor: "pointer",
-          transition: "background 0.15s",
-        }}
-        onMouseEnter={(e) => (e.currentTarget.style.background = "rgba(30,92,58,0.3)")}
-        onMouseLeave={(e) => (e.currentTarget.style.background = "rgba(30,92,58,0.15)")}
-      >
-        Back This Agent
-      </button>
+        {/* Streak */}
+        {streakText && (
+          <div style={{
+            marginTop: 10, display: "flex", alignItems: "center", gap: 6,
+          }}>
+            <div style={{
+              width: 6, height: 6, borderRadius: "50%",
+              background: streakColor,
+            }} />
+            <span style={{ fontSize: 10, fontWeight: 700, color: streakColor }}>
+              {streakText}
+            </span>
+          </div>
+        )}
+      </div>
+
+      {/* Pool + Back button */}
+      <div style={{
+        padding: "12px 18px 16px",
+        borderTop: "1px solid #1a1a24",
+        background: "rgba(30,92,58,0.03)",
+      }}>
+        {pool ? (
+          <div style={{
+            display: "flex", justifyContent: "space-between", alignItems: "center",
+            marginBottom: 12,
+          }}>
+            <div>
+              <div style={{ fontSize: 9, color: "#3a3a48", fontWeight: 700, textTransform: "uppercase", letterSpacing: 0.8 }}>
+                Pool Size
+              </div>
+              <div style={{ fontSize: 13, fontWeight: 700, color: "#8a8a95", fontVariantNumeric: "tabular-nums" }}>
+                {formatNum(poolSize)} <span style={{ fontSize: 9, color: "#4a4a55" }}>CHIPS</span>
+              </div>
+            </div>
+            <div style={{ textAlign: "right" }}>
+              <div style={{ fontSize: 9, color: "#3a3a48", fontWeight: 700, textTransform: "uppercase", letterSpacing: 0.8 }}>
+                Share Price
+              </div>
+              <div style={{ fontSize: 13, fontWeight: 700, color: "#8a8a95", fontVariantNumeric: "tabular-nums" }}>
+                {pool.sharePrice.toFixed(3)}
+              </div>
+            </div>
+          </div>
+        ) : (
+          <div style={{ fontSize: 10, color: "#4a4a55", marginBottom: 12 }}>
+            Pool not yet initialized
+          </div>
+        )}
+
+        <button
+          onClick={(e) => { e.stopPropagation(); onBackClick(); }}
+          style={{
+            width: "100%",
+            padding: "10px 0",
+            borderRadius: 8,
+            border: "none",
+            background: "linear-gradient(135deg, #1e5c3a 0%, #1a7a42 100%)",
+            color: "#fff",
+            fontSize: 12,
+            fontWeight: 800,
+            textTransform: "uppercase",
+            letterSpacing: 1,
+            cursor: "pointer",
+            transition: "all 0.15s",
+            boxShadow: "0 2px 8px rgba(30,92,58,0.3)",
+          }}
+          onMouseEnter={(e) => {
+            e.currentTarget.style.background = "linear-gradient(135deg, #24703e 0%, #20904a 100%)";
+            e.currentTarget.style.boxShadow = "0 4px 16px rgba(30,92,58,0.5)";
+          }}
+          onMouseLeave={(e) => {
+            e.currentTarget.style.background = "linear-gradient(135deg, #1e5c3a 0%, #1a7a42 100%)";
+            e.currentTarget.style.boxShadow = "0 2px 8px rgba(30,92,58,0.3)";
+          }}
+        >
+          Back This Agent
+        </button>
+      </div>
     </div>
   );
 }
 
-function StatCell({ label, value, valueColor }: { label: string; value: string; valueColor?: string }) {
+function StatPill({ label, value, accent }: { label: string; value: string; accent?: boolean }) {
   return (
-    <div>
-      <div style={{ fontSize: 9, color: "#3a3a48", fontWeight: 600, textTransform: "uppercase", letterSpacing: 0.3 }}>
+    <div style={{
+      padding: "6px 8px",
+      borderRadius: 6,
+      background: "#0a0a12",
+      border: "1px solid #161620",
+    }}>
+      <div style={{ fontSize: 8, color: "#3a3a48", fontWeight: 700, textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 2 }}>
         {label}
       </div>
-      <div style={{ fontSize: 13, fontWeight: 700, color: valueColor || "#c8c8c8", fontVariantNumeric: "tabular-nums" }}>
+      <div style={{ fontSize: 14, fontWeight: 800, color: accent ? "#c9a83a" : "#c8c8c8", fontVariantNumeric: "tabular-nums" }}>
         {value}
       </div>
     </div>

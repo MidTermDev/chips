@@ -139,17 +139,17 @@ export default function Home() {
         {/* left: table area */}
         <div style={{ overflow: "hidden", display: "flex", flexDirection: "column" }}>
           {!gameState ? (
-            <div style={{
+            <div className="wood-bg" style={{
               flex: 1, display: "flex", alignItems: "center", justifyContent: "center",
             }}>
               <div style={{ textAlign: "center" }}>
                 <div style={{
-                  fontSize: 20, fontWeight: 800, color: "#1a1a24",
+                  fontSize: 20, fontWeight: 800, color: "#3a2e1a",
                   letterSpacing: 4, textTransform: "uppercase", marginBottom: 8,
                 }}>
                   CHIPS
                 </div>
-                <div style={{ fontSize: 12, color: "#2a2a38" }}>
+                <div style={{ fontSize: 12, color: "#4a3e28" }}>
                   {connected ? "Waiting for players..." : "Connecting to engine..."}
                 </div>
               </div>
@@ -172,6 +172,7 @@ export default function Home() {
           <div style={{
             padding: "0 24px 16px",
             display: "flex", flexDirection: "column", alignItems: "center", gap: 8,
+            background: "#1a1208",
           }}>
             <ThoughtBubble thinking={thinking} lastAction={lastReasoning} />
 
@@ -179,8 +180,9 @@ export default function Home() {
               <div className="anim-fade" style={{
                 textAlign: "center", padding: "10px 20px",
                 borderRadius: 8,
-                background: "#12110e",
+                background: "rgba(0,0,0,0.35)",
                 border: "1px solid #2a2418",
+                backdropFilter: "blur(4px)",
               }}>
                 <span style={{ fontSize: 13, fontWeight: 700, color: "#c9a83a" }}>
                   {winners.map((w, i) => (
@@ -190,7 +192,7 @@ export default function Home() {
                     </span>
                   ))}
                 </span>
-                <span style={{ fontSize: 11, color: "#5a5040", marginLeft: 10 }}>
+                <span style={{ fontSize: 11, color: "#7a6a48", marginLeft: 10 }}>
                   {winners.map((w) => w.handDescription).join(", ")}
                 </span>
               </div>
