@@ -1,6 +1,7 @@
 "use client";
 
 import Card from "./Card";
+import AgentAvatar from "./AgentAvatar";
 import { PlayerData, CardData } from "@/hooks/useGameState";
 
 interface Props {
@@ -70,7 +71,8 @@ export default function AgentSeat({
         </div>
       )}
 
-      {/* name + style */}
+      {/* avatar + name + style */}
+      <AgentAvatar monogram={player.avatar || player.name.slice(0, 2).toUpperCase()} index={player.seat} size={36} />
       <div style={{ textAlign: "center", lineHeight: 1.2 }}>
         <div style={{ fontSize: 12, fontWeight: 700, color: "#fff" }}>
           {player.name}
