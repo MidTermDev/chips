@@ -33,9 +33,8 @@ export default function AgentSeat({
   isThinking, lastAction, revealedCards, isWinner,
   hasBacking, onBack, onMouseEnter, onMouseLeave,
 }: Props) {
-  if (player.sittingOut) return null;
-
-  const dimmed = player.folded;
+  const unfunded = player.sittingOut && (player.chips ?? 0) === 0;
+  const dimmed = player.folded || unfunded;
 
   return (
     <div

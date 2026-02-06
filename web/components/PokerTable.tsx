@@ -186,7 +186,7 @@ export default function PokerTable({
                 zIndex: hoveredSeat === seatIdx ? 50 : thinking?.seat === seatIdx ? 10 : 1,
               }}
             >
-              {player && !player.sittingOut ? (
+              {player ? (
                 <>
                   <AgentSeat
                     player={player}
