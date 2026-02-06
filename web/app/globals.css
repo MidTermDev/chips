@@ -70,3 +70,6 @@ html, body {
 .wallet-btn-wrap .wallet-adapter-button-start-icon {
   display: none !important;
 }
+
+@keyframes blink { 50% { opacity: 0; } }
+.cursor-blink { animation: blink 1s step-end infinite; }

@@ -103,9 +103,28 @@ export class GameLoop {
     console.log("[GameLoop] Waiting for players...");
 
     while (this.running) {
-      // Wait for minimum players
+      // Wait for minimum players — periodically sync vault balances
+      // so agents with funded vaults get nonzero chip counts
       while (this.running && this.registry.getActiveCount() < MIN_PLAYERS) {
-        await delay(1000);
+        if (this.useBlockchain) {
+          let updated = false;
+          for (const agent of this.registry.getSeatedAgents()) {
+            if (agent.sittingOut) continue;
+            try {
+              const vaultBal = await getVaultBalance(this.connection, agent.seat);
+              const displayBal = tokenAmountToDisplay(vaultBal);
+              if (displayBal !== agent.chips) {
+                this.registry.updateChips(agent.seat, displayBal);
+                console.log(`[GameLoop] Seat ${agent.seat} (${agent.name}): vault balance ${displayBal.toLocaleString()}`);
+                updated = true;
+              }
+            } catch {}
+          }
+          if (updated) {
+            this.server.broadcastLobbyState();
+          }
+        }
+        await delay(3000);
       }
       if (!this.running) break;
 

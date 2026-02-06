@@ -12,8 +12,12 @@ const COLORS: { bg: string; fg: string }[] = [
   { bg: "#2a1a1e", fg: "#d46a7a" }, // Hustler - rose
 ];
 
+function isImageUrl(avatar: string): boolean {
+  return avatar.startsWith("/api/avatars/") || avatar.startsWith("http://") || avatar.startsWith("https://");
+}
+
 interface Props {
-  /** Two-char monogram string like "AC" */
+  /** Two-char monogram string like "AC", or an image URL */
   monogram: string;
   /** Agent index 0-7, used for color */
   index: number;
@@ -24,6 +28,12 @@ interface Props {
 export default function AgentAvatar({ monogram, index, size = 28 }: Props) {
   const color = COLORS[index % COLORS.length];
   const fontSize = Math.round(size * 0.36);
+  const hasImage = isImageUrl(monogram);
+
+  // Resolve relative avatar URLs to the engine server
+  const imgSrc = hasImage && monogram.startsWith("/api/avatars/")
+    ? `${process.env.NEXT_PUBLIC_ENGINE_URL || "https://server.chips.rip"}${monogram}`
+    : monogram;
 
   return (
     <div style={{
@@ -36,16 +46,30 @@ export default function AgentAvatar({ monogram, index, size = 28 }: Props) {
       alignItems: "center",
       justifyContent: "center",
       flexShrink: 0,
+      overflow: "hidden",
     }}>
-      <span style={{
-        fontSize,
-        fontWeight: 700,
-        color: color.fg,
-        letterSpacing: -0.5,
-        lineHeight: 1,
-      }}>
-        {monogram}
-      </span>
+      {hasImage ? (
+        <img
+          src={imgSrc}
+          alt=""
+          style={{
+            width: size,
+            height: size,
+            objectFit: "cover",
+            borderRadius: "50%",
+          }}
+        />
+      ) : (
+        <span style={{
+          fontSize,
+          fontWeight: 700,
+          color: color.fg,
+          letterSpacing: -0.5,
+          lineHeight: 1,
+        }}>
+          {monogram}
+        </span>
+      )}
     </div>
   );
 }

@@ -1,13 +1,14 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useRef } from "react";
 
 const API_BASE = process.env.NEXT_PUBLIC_ENGINE_URL || "https://server.chips.rip";
 
 export default function RegisterPage() {
   const [name, setName] = useState("");
   const [style, setStyle] = useState("");
-  const [avatar, setAvatar] = useState("");
+  const [avatarFile, setAvatarFile] = useState<File | null>(null);
+  const [avatarPreview, setAvatarPreview] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [result, setResult] = useState<{
@@ -18,6 +19,46 @@ export default function RegisterPage() {
     avatar: string;
   } | null>(null);
   const [copied, setCopied] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  const handleFileSelect = (file: File | null) => {
+    if (!file) return;
+
+    if (!file.type.startsWith("image/")) {
+      setError("Please select an image file (PNG, JPG, GIF, or WebP)");
+      return;
+    }
+
+    if (file.size > 512 * 1024) {
+      setError("Image too large. Max 512KB.");
+      return;
+    }
+
+    setError("");
+    setAvatarFile(file);
+
+    const reader = new FileReader();
+    reader.onload = (e) => setAvatarPreview(e.target?.result as string);
+    reader.readAsDataURL(file);
+  };
+
+  const handleDrop = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    const file = e.dataTransfer.files?.[0];
+    if (file) handleFileSelect(file);
+  };
+
+  const handleDragOver = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+  };
+
+  const removeAvatar = () => {
+    setAvatarFile(null);
+    setAvatarPreview(null);
+    if (fileInputRef.current) fileInputRef.current.value = "";
+  };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -25,13 +66,34 @@ export default function RegisterPage() {
     setLoading(true);
 
     try {
+      // Upload avatar first if provided
+      let avatarUrl: string | undefined;
+      if (avatarFile) {
+        const uploadRes = await fetch(`${API_BASE}/api/upload-avatar`, {
+          method: "POST",
+          headers: { "Content-Type": avatarFile.type },
+          body: avatarFile,
+        });
+
+        if (!uploadRes.ok) {
+          const data = await uploadRes.json();
+          setError(data.error || "Avatar upload failed");
+          setLoading(false);
+          return;
+        }
+
+        const uploadData = await uploadRes.json();
+        avatarUrl = uploadData.url;
+      }
+
+      // Register the agent
       const res = await fetch(`${API_BASE}/api/register`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           name: name.trim(),
           style,
-          avatar: avatar.trim() || undefined,
+          avatar: avatarUrl || undefined,
         }),
       });
 
@@ -177,7 +239,7 @@ export default function RegisterPage() {
               />
             </div>
 
-            {/* Avatar */}
+            {/* Avatar Upload */}
             <div style={{ marginBottom: 28 }}>
               <label style={{
                 display: "block", fontSize: 11, fontWeight: 700,
@@ -186,19 +248,84 @@ export default function RegisterPage() {
               }}>
                 Avatar (optional)
               </label>
+
               <input
-                type="text"
-                value={avatar}
-                onChange={(e) => setAvatar(e.target.value)}
-                placeholder="URL or 2-char initials (defaults to first 2 of name)"
-                style={{
-                  width: "100%", padding: "10px 14px",
-                  background: "#111118", border: "1px solid #1e1e28",
-                  borderRadius: 8, color: "#e2e2e2", fontSize: 14,
-                  outline: "none",
-                  boxSizing: "border-box",
-                }}
+                ref={fileInputRef}
+                type="file"
+                accept="image/png,image/jpeg,image/gif,image/webp"
+                onChange={(e) => handleFileSelect(e.target.files?.[0] || null)}
+                style={{ display: "none" }}
               />
+
+              {avatarPreview ? (
+                <div style={{
+                  display: "flex", alignItems: "center", gap: 16,
+                  padding: "12px 16px",
+                  background: "#111118", border: "1px solid #1e1e28",
+                  borderRadius: 8,
+                }}>
+                  <img
+                    src={avatarPreview}
+                    alt="Avatar preview"
+                    style={{
+                      width: 48, height: 48,
+                      borderRadius: "50%",
+                      objectFit: "cover",
+                      border: "2px solid #1e1e28",
+                    }}
+                  />
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{
+                      fontSize: 12, color: "#c8c8c8", fontWeight: 600,
+                      overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
+                    }}>
+                      {avatarFile?.name}
+                    </div>
+                    <div style={{ fontSize: 10, color: "#3a3a48", marginTop: 2 }}>
+                      {avatarFile ? `${(avatarFile.size / 1024).toFixed(0)}KB` : ""}
+                    </div>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={removeAvatar}
+                    style={{
+                      padding: "4px 10px", borderRadius: 4,
+                      background: "transparent", border: "1px solid #2a1a1a",
+                      color: "#f87171", fontSize: 11, fontWeight: 600,
+                      cursor: "pointer",
+                    }}
+                  >
+                    Remove
+                  </button>
+                </div>
+              ) : (
+                <div
+                  onClick={() => fileInputRef.current?.click()}
+                  onDrop={handleDrop}
+                  onDragOver={handleDragOver}
+                  style={{
+                    padding: "24px 16px",
+                    background: "#111118", border: "2px dashed #1e1e28",
+                    borderRadius: 8, textAlign: "center",
+                    cursor: "pointer",
+                    transition: "border-color 0.15s",
+                  }}
+                  onMouseEnter={(e) => e.currentTarget.style.borderColor = "#c9a83a44"}
+                  onMouseLeave={(e) => e.currentTarget.style.borderColor = "#1e1e28"}
+                >
+                  <div style={{ fontSize: 24, marginBottom: 8 }}>
+                    <svg width="24" height="24" viewBox="0 0 24 24" fill="none" style={{ display: "inline-block" }}>
+                      <path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4M17 8l-5-5-5 5M12 3v12" stroke="#3a3a48" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+                    </svg>
+                  </div>
+                  <div style={{ fontSize: 12, color: "#5a5a68", fontWeight: 500 }}>
+                    Click to upload or drag & drop
+                  </div>
+                  <div style={{ fontSize: 10, color: "#3a3a48", marginTop: 4 }}>
+                    PNG, JPG, GIF, or WebP (max 512KB)
+                  </div>
+                </div>
+              )}
             </div>
 
             {/* Error */}

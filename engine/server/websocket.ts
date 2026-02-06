@@ -1,6 +1,9 @@
 import { WebSocketServer, WebSocket } from "ws";
 import { createServer, IncomingMessage, ServerResponse, Server as HttpServer } from "http";
 import { URL } from "url";
+import { existsSync, mkdirSync, writeFileSync, readFileSync } from "fs";
+import { join, extname } from "path";
+import { randomBytes } from "crypto";
 import { PlayerRegistry, RegisteredAgent } from "../registry/player-registry";
 import { ProfileStore } from "../registry/profile-store";
 import { VerificationStore } from "../registry/verification-store";
@@ -52,6 +55,15 @@ interface RateLimitEntry {
 
 const RATE_LIMIT_MAX = 10;
 const RATE_LIMIT_WINDOW_MS = 60 * 60 * 1000; // 1 hour
+const AVATARS_DIR = "data/avatars";
+const MAX_AVATAR_SIZE = 512 * 1024; // 512KB
+const ALLOWED_AVATAR_TYPES: Record<string, string> = {
+  "image/png": ".png",
+  "image/jpeg": ".jpg",
+  "image/jpg": ".jpg",
+  "image/gif": ".gif",
+  "image/webp": ".webp",
+};
 
 export class GameServer {
   private httpServer: HttpServer;
@@ -149,6 +161,16 @@ export class GameServer {
         res.writeHead(404, { "Content-Type": "application/json" });
         res.end(JSON.stringify({ error: "Agent not found" }));
       }
+      return;
+    }
+
+    if (req.method === "POST" && path === "/api/upload-avatar") {
+      this.handleAvatarUpload(req, res);
+      return;
+    }
+
+    if (req.method === "GET" && path.startsWith("/api/avatars/")) {
+      this.handleServeAvatar(req, res, path);
       return;
     }
 
@@ -266,6 +288,98 @@ export class GameServer {
     });
   }
 
+  // ─── POST /api/upload-avatar ──────────────────────────────
+
+  private handleAvatarUpload(req: IncomingMessage, res: ServerResponse): void {
+    const contentType = req.headers["content-type"] || "";
+    const ext = ALLOWED_AVATAR_TYPES[contentType];
+    if (!ext) {
+      res.writeHead(400, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({ error: "Invalid image type. Allowed: png, jpg, gif, webp" }));
+      return;
+    }
+
+    const chunks: Buffer[] = [];
+    let size = 0;
+
+    req.on("data", (chunk: Buffer) => {
+      size += chunk.length;
+      if (size > MAX_AVATAR_SIZE) {
+        res.writeHead(413, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({ error: "Image too large. Max 512KB." }));
+        req.destroy();
+        return;
+      }
+      chunks.push(chunk);
+    });
+
+    req.on("end", () => {
+      if (size === 0 || size > MAX_AVATAR_SIZE) return;
+
+      try {
+        if (!existsSync(AVATARS_DIR)) mkdirSync(AVATARS_DIR, { recursive: true });
+
+        const filename = randomBytes(12).toString("hex") + ext;
+        const filepath = join(AVATARS_DIR, filename);
+        writeFileSync(filepath, Buffer.concat(chunks));
+
+        const url = `/api/avatars/${filename}`;
+        console.log(`[GameServer] Avatar uploaded: ${filename} (${size} bytes)`);
+
+        res.writeHead(200, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({ url }));
+      } catch (e: any) {
+        res.writeHead(500, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({ error: "Failed to save avatar" }));
+      }
+    });
+
+    req.on("error", () => {
+      res.writeHead(500, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({ error: "Upload failed" }));
+    });
+  }
+
+  // ─── GET /api/avatars/:filename ─────────────────────────────
+
+  private handleServeAvatar(_req: IncomingMessage, res: ServerResponse, path: string): void {
+    const filename = path.slice("/api/avatars/".length);
+
+    // Sanitize: only allow alphanumeric, dash, dot
+    if (!/^[a-z0-9\-]+\.(png|jpg|gif|webp)$/.test(filename)) {
+      res.writeHead(400, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({ error: "Invalid filename" }));
+      return;
+    }
+
+    const filepath = join(AVATARS_DIR, filename);
+    if (!existsSync(filepath)) {
+      res.writeHead(404, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({ error: "Avatar not found" }));
+      return;
+    }
+
+    const ext = extname(filename).toLowerCase();
+    const mimeTypes: Record<string, string> = {
+      ".png": "image/png",
+      ".jpg": "image/jpeg",
+      ".gif": "image/gif",
+      ".webp": "image/webp",
+    };
+
+    try {
+      const data = readFileSync(filepath);
+      res.writeHead(200, {
+        "Content-Type": mimeTypes[ext] || "application/octet-stream",
+        "Cache-Control": "public, max-age=86400",
+      });
+      res.end(data);
+    } catch {
+      res.writeHead(500, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({ error: "Failed to read avatar" }));
+    }
+  }
+
   // ─── POST /api/verify (legacy, kept for compat) ────────────
 
   private handleVerifyRequest(req: IncomingMessage, res: ServerResponse): void {
@@ -350,6 +464,10 @@ export class GameServer {
     if (params.role === "spectator") {
       this.spectators.add(ws);
       console.log(`[GameServer] Spectator connected (total: ${this.spectators.size})`);
+      // Send current table state immediately so frontend can show seated agents
+      if (!this.handInProgress) {
+        this.sendToWs(ws, "game_state", this.buildLobbyState());
+      }
       ws.on("close", () => {
         this.spectators.delete(ws);
         console.log(`[GameServer] Spectator disconnected (total: ${this.spectators.size})`);
@@ -473,6 +591,7 @@ export class GameServer {
       }
 
       this.setupAgentListeners(ws, agentId);
+      this.broadcastLobbyState();
       return;
     }
 
@@ -545,6 +664,7 @@ export class GameServer {
           this.resolveTimeoutForAgent(agentId);
           this.registry.unregister(agentId);
           this.onAgentLeft?.(agent, "leave");
+          this.broadcastLobbyState();
         }
         break;
       }
@@ -606,6 +726,7 @@ export class GameServer {
         });
         this.registry.unregister(agentId);
         this.onAgentLeft?.(agent, "removed");
+        this.broadcastLobbyState();
       }
     }, SIT_OUT_REMOVAL_MS);
     this.sitOutTimers.set(agentId, timer);
@@ -715,6 +836,44 @@ export class GameServer {
         ws.send(JSON.stringify({ type, data, timestamp: Date.now() } as WSEnvelope));
       } catch {}
     }
+  }
+
+  // ─── Lobby state (between hands) ────────────────────────
+
+  private buildLobbyState(): any {
+    const agents = this.registry.getSeatedAgents();
+    return {
+      type: "game_state",
+      handNumber: this.handCount,
+      dealerSeat: -1,
+      smallBlindSeat: -1,
+      bigBlindSeat: -1,
+      bettingRound: "preflop",
+      pot: 0,
+      currentBet: 0,
+      activeSeat: -1,
+      communityCards: [],
+      players: agents.map(a => ({
+        seat: a.seat,
+        agentId: a.agentId,
+        name: a.name,
+        style: a.style,
+        avatar: a.avatar,
+        chips: a.chips,
+        sittingOut: a.sittingOut,
+        bet: 0,
+        totalBet: 0,
+        folded: false,
+        allIn: false,
+        hasCards: false,
+      })),
+      actions: [],
+    };
+  }
+
+  broadcastLobbyState(): void {
+    if (this.handInProgress) return;
+    this.broadcast("game_state", this.buildLobbyState());
   }
 
   // ─── Helpers ──────────────────────────────────────────────
