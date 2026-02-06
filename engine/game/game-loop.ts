@@ -196,12 +196,16 @@ export class GameLoop {
     if (!this.game) return;
 
     // Update chip counts from vault balances (blockchain mode)
+    // Sync ALL seated agents (not just active) so newly funded agents get picked up
     if (this.useBlockchain) {
-      for (const agent of this.registry.getActiveAgents()) {
-        const vaultBal = await getVaultBalance(this.connection, agent.poolIndex, this.mintAddress);
-        const displayBal = tokenAmountToDisplay(vaultBal);
-        this.game.addPlayer(agent.seat, agent.name, displayBal);
-        this.registry.updateChips(agent.seat, displayBal);
+      for (const agent of this.registry.getSeatedAgents()) {
+        if (agent.sittingOut) continue;
+        try {
+          const vaultBal = await getVaultBalance(this.connection, agent.poolIndex, this.mintAddress);
+          const displayBal = tokenAmountToDisplay(vaultBal);
+          this.game.addPlayer(agent.seat, agent.name, displayBal);
+          this.registry.updateChips(agent.seat, displayBal);
+        } catch {}
       }
     }
 
