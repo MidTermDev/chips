@@ -5,7 +5,7 @@ import { DecisionContext, PokerDecision, CardData, ValidAction } from "./types";
  * All values 0–1. Defaults produce a solid TAG (tight-aggressive) style.
  */
 export interface StrategyConfig {
-  /** How often to raise vs call when you have a playable hand. 0 = passive, 1 = ultra-aggressive. Default 0.5 */
+  /** How often to raise vs call when you have a playable hand. 0 = passive, 1 = ultra-aggressive. Default 0.6 */
   aggression?: number;
   /** How selective with starting hands. 0 = play everything, 1 = only premiums. Default 0.5 */
   tightness?: number;
@@ -16,7 +16,7 @@ export interface StrategyConfig {
 }
 
 const DEFAULTS: Required<StrategyConfig> = {
-  aggression: 0.5,
+  aggression: 0.6,
   tightness: 0.5,
   bluffFrequency: 0.15,
   positionAware: true,
@@ -25,21 +25,12 @@ const DEFAULTS: Required<StrategyConfig> = {
 /**
  * Create a configurable rules-based poker strategy.
  * Returns a decision function compatible with PokerAgentClient's onDecision callback.
- *
- * @example
- * ```ts
- * import { PokerAgentClient, createStrategy } from "@chips-arena/poker-agent";
- *
- * const client = new PokerAgentClient({
- *   serverUrl: "wss://server.chips.rip",
- *   apiKey: process.env.CHIPS_API_KEY!,
- *   onDecision: createStrategy({ aggression: 0.7, tightness: 0.4 }),
- * });
- * client.connect();
- * ```
  */
 export function createStrategy(config?: StrategyConfig): (ctx: DecisionContext) => Promise<PokerDecision> {
   const cfg = { ...DEFAULTS, ...config };
+
+  // Track whether we were the pre-flop aggressor (for c-betting)
+  let wasPreFlopRaiser = false;
 
   return async (ctx: DecisionContext): Promise<PokerDecision> => {
     const { validActions, toCall, yourChips, holeCards, communityCards, pot, potOdds, bettingRound, position, players } = ctx;
@@ -52,73 +43,159 @@ export function createStrategy(config?: StrategyConfig): (ctx: DecisionContext) 
     const handStrength = evaluateStrength(holeCards, communityCards, bettingRound);
     const positionBonus = cfg.positionAware ? getPositionBonus(position) : 0;
     const effectiveStrength = Math.min(1, handStrength + positionBonus);
-
-    // Threshold to play: higher tightness = higher bar
-    const playThreshold = 0.2 + cfg.tightness * 0.35;
-    // Threshold to raise: based on aggression
-    const raiseThreshold = playThreshold + (1 - cfg.aggression) * 0.2;
-
     const activePlayers = players.filter(p => !p.folded && !p.sittingOut).length;
     const callRatio = yourChips > 0 ? toCall / yourChips : 1;
 
-    // ─── Free to play (no bet to match) ───────────────────
-    if (canCheck) {
-      // Bluff raise
-      if (canRaise && roll(cfg.bluffFrequency * 0.5)) {
-        return raise(canRaise, "raise", 0.5, "Bluff raise");
+    // Tighten up with more players (multiway pots need stronger hands)
+    const multiplayerPenalty = Math.max(0, (activePlayers - 2) * 0.04);
+
+    // ─── PREFLOP ──────────────────────────────────────────────
+    if (bettingRound === "preflop") {
+      wasPreFlopRaiser = false;
+      const pfStrength = handStrength;
+
+      // Fold threshold: tighter = higher bar to enter a pot
+      const foldThreshold = 0.25 + cfg.tightness * 0.2 + multiplayerPenalty;
+
+      // Facing a raise preflop
+      if (toCall > 0) {
+        // Junk hands: fold
+        if (pfStrength < foldThreshold) {
+          // Occasionally defend BB with marginal hands
+          if (position === "BB" && callRatio < 0.06 && roll(0.3)) {
+            return { action: "call", reasoning: "BB defense with marginal hand" };
+          }
+          return { action: "fold", reasoning: `Folding preflop (${(pfStrength * 100).toFixed(0)}% strength)` };
+        }
+
+        // Premium: 3-bet / re-raise
+        if (pfStrength >= 0.7 && canRaise && roll(0.5 + cfg.aggression * 0.4)) {
+          wasPreFlopRaiser = true;
+          return raise(canRaise, "raise", 0.3 + cfg.aggression * 0.2, `3-betting premium (${describeStrength(pfStrength)})`);
+        }
+
+        // Monster: shove if deep in action
+        if (pfStrength >= 0.85 && canAllIn && callRatio > 0.3) {
+          wasPreFlopRaiser = true;
+          return { action: "all-in", reasoning: `All-in with monster (${describeStrength(pfStrength)})` };
+        }
+
+        // Decent hands: call
+        if (canCall) {
+          // Big raises with medium hands — fold more often
+          if (callRatio > 0.2 && pfStrength < 0.55) {
+            return { action: "fold", reasoning: "Big raise, not strong enough to continue" };
+          }
+          return { action: "call", reasoning: `Calling preflop (${describeStrength(pfStrength)})` };
+        }
       }
-      // Value raise with strong hand
-      if (canRaise && effectiveStrength >= raiseThreshold) {
-        const sizeFactor = 0.4 + cfg.aggression * 0.4;
-        return raise(canRaise, "raise", sizeFactor, `Raising strong hand (${describeStrength(handStrength)})`);
+
+      // No bet to match (BB or limped to us)
+      if (canCheck) {
+        // Strong hand: raise for value
+        if (canRaise && pfStrength >= 0.45 + (1 - cfg.aggression) * 0.15) {
+          wasPreFlopRaiser = true;
+          const sizing = 0.2 + cfg.aggression * 0.3;
+          return raise(canRaise, "raise", sizing, `Open raising (${describeStrength(pfStrength)})`);
+        }
+        // Occasional steal from late position
+        if (canRaise && cfg.positionAware && (position === "BTN" || position === "CO") && roll(cfg.aggression * 0.4)) {
+          wasPreFlopRaiser = true;
+          return raise(canRaise, "raise", 0.15, "Position steal");
+        }
+        return { action: "check", reasoning: "Checking from BB" };
       }
-      return { action: "check", reasoning: "Check in position" };
+
+      // Default fold (shouldn't reach here often)
+      return { action: "fold", reasoning: "Folding weak preflop hand" };
     }
 
-    // ─── Facing a bet ─────────────────────────────────────
-    const potOddsThreshold = potOdds ?? 0.5;
+    // ─── POSTFLOP ─────────────────────────────────────────────
 
-    // Premium hands: raise or re-raise
-    if (effectiveStrength >= 0.8) {
-      if (canRaise && roll(0.5 + cfg.aggression * 0.4)) {
-        return raise(canRaise, "raise", 0.5 + cfg.aggression * 0.3, `Re-raising premium (${describeStrength(handStrength)})`);
+    const potCommitRatio = yourChips > 0 ? pot / yourChips : 0;
+
+    // ── No bet to face (we can check or bet) ──
+    if (canCheck) {
+      // C-bet: if we were the preflop raiser, bet the flop ~60-80% of the time
+      if (wasPreFlopRaiser && bettingRound === "flop" && canRaise) {
+        const cbetFreq = 0.5 + cfg.aggression * 0.3;
+        if (effectiveStrength >= 0.3 && roll(cbetFreq)) {
+          const sizing = 0.3 + cfg.aggression * 0.2;
+          return raise(canRaise, "raise", sizing, `Continuation bet (${describeStrength(handStrength)})`);
+        }
+        // Even with air, c-bet sometimes
+        if (roll(cfg.bluffFrequency * 0.8)) {
+          return raise(canRaise, "raise", 0.2, "C-bet bluff");
+        }
       }
-      if (canAllIn && callRatio > 0.6 && effectiveStrength >= 0.9) {
+
+      // Strong hand: bet for value
+      if (canRaise && effectiveStrength >= 0.6) {
+        const sizing = 0.3 + cfg.aggression * 0.35 + (effectiveStrength - 0.6) * 0.3;
+        return raise(canRaise, "raise", sizing, `Value bet (${describeStrength(handStrength)})`);
+      }
+
+      // Medium hand: bet sometimes for protection/thin value
+      if (canRaise && effectiveStrength >= 0.4 && roll(cfg.aggression * 0.5)) {
+        return raise(canRaise, "raise", 0.2 + cfg.aggression * 0.15, `Bet for protection (${describeStrength(handStrength)})`);
+      }
+
+      // Draws: semi-bluff
+      if (canRaise && effectiveStrength >= 0.35 && effectiveStrength < 0.5 && roll(cfg.aggression * 0.35)) {
+        return raise(canRaise, "raise", 0.25, `Semi-bluff (${describeStrength(handStrength)})`);
+      }
+
+      // Pure bluff: occasionally with nothing
+      if (canRaise && activePlayers <= 3 && roll(cfg.bluffFrequency * 0.4)) {
+        return raise(canRaise, "raise", 0.2 + Math.random() * 0.15, "Bluff bet");
+      }
+
+      return { action: "check", reasoning: `Check (${describeStrength(handStrength)})` };
+    }
+
+    // ── Facing a bet postflop ──
+    const facingBetStrength = effectiveStrength - multiplayerPenalty;
+
+    // Monster: raise/re-raise
+    if (facingBetStrength >= 0.75) {
+      if (canRaise && roll(0.4 + cfg.aggression * 0.5)) {
+        const sizing = 0.4 + cfg.aggression * 0.3;
+        return raise(canRaise, "raise", sizing, `Raising strong hand (${describeStrength(handStrength)})`);
+      }
+      if (canAllIn && facingBetStrength >= 0.88 && (callRatio > 0.4 || potCommitRatio > 1.5)) {
         return { action: "all-in", reasoning: `All-in with monster (${describeStrength(handStrength)})` };
       }
-      if (canCall) return { action: "call", reasoning: `Calling with premium (${describeStrength(handStrength)})` };
+      if (canCall) return { action: "call", reasoning: `Slow-playing strong hand (${describeStrength(handStrength)})` };
     }
 
-    // Good hands: call or raise depending on odds
-    if (effectiveStrength >= playThreshold) {
-      // Cheap to call
-      if (canCall && callRatio < 0.1) {
-        return { action: "call", reasoning: "Cheap call with decent hand" };
+    // Good hand: call or raise
+    if (facingBetStrength >= 0.5) {
+      // Raise for value sometimes
+      if (canRaise && roll(cfg.aggression * 0.3)) {
+        return raise(canRaise, "raise", 0.3, `Raise for value (${describeStrength(handStrength)})`);
       }
-      // Pot odds favor calling
-      if (canCall && effectiveStrength > potOddsThreshold) {
-        if (canRaise && roll(cfg.aggression * 0.3)) {
-          return raise(canRaise, "raise", 0.4, `Semi-bluff raise (${describeStrength(handStrength)})`);
-        }
-        return { action: "call", reasoning: `Calling, equity ${(effectiveStrength * 100).toFixed(0)}% vs pot odds ${(potOddsThreshold * 100).toFixed(0)}%` };
+      if (canCall) return { action: "call", reasoning: `Calling with ${describeStrength(handStrength)} hand` };
+    }
+
+    // Marginal hand: call small bets, fold to big ones
+    if (facingBetStrength >= 0.35) {
+      if (canCall && callRatio < 0.12) {
+        return { action: "call", reasoning: `Floating with ${describeStrength(handStrength)} hand` };
       }
-      // Medium cost: still call with pairs+
-      if (canCall && callRatio < 0.25 && handStrength >= 0.5) {
-        return { action: "call", reasoning: "Medium call with made hand" };
+      // Drawing hand: call if good pot odds
+      if (canCall && callRatio < 0.2 && (potOdds ?? 1) < effectiveStrength) {
+        return { action: "call", reasoning: `Calling draw, pot odds ${((potOdds ?? 0) * 100).toFixed(0)}%` };
       }
+      return { action: "fold", reasoning: `Folding marginal to big bet (${(callRatio * 100).toFixed(0)}% of stack)` };
     }
 
-    // Bluff: occasionally raise with weak hands when facing small bets
-    if (canRaise && callRatio < 0.15 && activePlayers <= 3 && roll(cfg.bluffFrequency)) {
-      return raise(canRaise, "raise", 0.4, "Bluff raise (small bet, few players)");
+    // Bluff raise: occasionally with nothing against small bets
+    if (canRaise && callRatio < 0.1 && activePlayers <= 2 && roll(cfg.bluffFrequency)) {
+      return raise(canRaise, "raise", 0.35, "Bluff raise");
     }
 
-    // Cheap to call: do it with anything marginal
-    if (canCall && callRatio < 0.05) {
-      return { action: "call", reasoning: "Very cheap call" };
-    }
-
-    return { action: "fold", reasoning: `Folding weak hand (strength ${(handStrength * 100).toFixed(0)}%)` };
+    // Weak hand: fold
+    return { action: "fold", reasoning: `Folding ${describeStrength(handStrength)} hand` };
   };
 }
 
@@ -144,25 +221,21 @@ function preflopStrength(cards: CardData[]): number {
   const gap = high - low;
   const connected = gap <= 1;
 
-  // Score 0-20, then normalize
   let score = high; // Base: high card value (2-14)
 
   if (paired) {
-    score = Math.max(score * 2, 5); // Pairs are strong
-    if (high >= 10) score += 4; // Big pairs
+    score = Math.max(score * 2, 5);
+    if (high >= 10) score += 4;
   } else {
     if (suited) score += 2;
     if (connected) score += 1;
     if (gap <= 2) score += 0.5;
-
-    // Penalty for big gaps
     if (gap >= 5) score -= 1;
     if (gap >= 4) score -= 0.5;
   }
 
-  // Bonus for both high cards
-  if (high >= 13 && low >= 10) score += 3; // Both broadway
-  if (high === 14 && low >= 10) score += 2; // Ace + broadway
+  if (high >= 13 && low >= 10) score += 3;
+  if (high === 14 && low >= 10) score += 2;
 
   return clamp(score / 30);
 }
@@ -179,56 +252,52 @@ function postflopStrength(holeCards: CardData[], communityCards: CardData[]): nu
 
   let score = 0;
 
-  // ─── Made hands ─────────────────────
   const rankCounts = countValues(allRanks);
   const maxCount = Math.max(...Object.values(rankCounts));
 
-  // Check if hole cards contribute to the best combination
   const holePaired = holeRanks[0] === holeRanks[1];
   const pairWithBoard = holeRanks.some(r => boardRanks.includes(r));
   const topBoardRank = boardRanks.length > 0 ? Math.max(...boardRanks) : 0;
 
   if (maxCount >= 4) {
-    score = 0.95; // Quads
+    score = 0.95;
   } else if (maxCount === 3 && Object.values(rankCounts).filter(c => c >= 2).length >= 2) {
-    score = 0.9; // Full house
+    score = 0.9;
   } else if (maxCount === 3) {
-    score = holePaired ? 0.82 : pairWithBoard ? 0.78 : 0.55; // Trips
+    score = holePaired ? 0.82 : pairWithBoard ? 0.78 : 0.55;
   } else if (Object.values(rankCounts).filter(c => c >= 2).length >= 2) {
-    score = pairWithBoard ? 0.7 : holePaired ? 0.65 : 0.45; // Two pair
+    score = pairWithBoard ? 0.7 : holePaired ? 0.65 : 0.45;
   } else if (maxCount === 2) {
     if (holePaired) {
-      score = holeRanks[0] > topBoardRank ? 0.6 : 0.45; // Overpair vs underpair
+      score = holeRanks[0] > topBoardRank ? 0.6 : 0.45;
     } else if (pairWithBoard) {
       const pairedRank = holeRanks.find(r => boardRanks.includes(r)) || 0;
-      score = pairedRank === topBoardRank ? 0.55 : 0.4; // Top pair vs lower pair
+      score = pairedRank === topBoardRank ? 0.55 : 0.4;
     } else {
-      score = 0.25; // Board pair, no connection
+      score = 0.2; // Board pair, no connection — weaker
     }
   } else {
-    // High card only
+    // High card only — basically nothing post-flop
     const highHole = Math.max(...holeRanks);
-    score = 0.1 + (highHole / 14) * 0.15;
+    score = 0.08 + (highHole / 14) * 0.12;
   }
 
   // ─── Draws ──────────────────────────
-  // Flush draw
   const suitCounts = countStringValues(allSuits);
   const maxSuitCount = Math.max(...Object.values(suitCounts));
   if (maxSuitCount >= 5) {
-    score = Math.max(score, 0.75); // Made flush
+    score = Math.max(score, 0.78);
   } else if (maxSuitCount === 4) {
     const holeSuit = holeCards.find(c => suitCounts[c.suit] === 4);
-    if (holeSuit) score = Math.max(score, score + 0.12); // Flush draw
+    if (holeSuit) score = Math.max(score, score + 0.15);
   }
 
-  // Straight check (simplified)
   const uniqueRanks = [...new Set(allRanks)].sort((a, b) => a - b);
   const longestRun = longestConsecutive(uniqueRanks);
   if (longestRun >= 5) {
-    score = Math.max(score, 0.8); // Made straight
+    score = Math.max(score, 0.82);
   } else if (longestRun === 4) {
-    score = Math.max(score, score + 0.1); // Open-ended straight draw
+    score = Math.max(score, score + 0.12);
   }
 
   return clamp(score);
@@ -267,7 +336,6 @@ function longestConsecutive(sorted: number[]): number {
       run = 1;
     }
   }
-  // Check ace-low straight (A-2-3-4-5)
   if (sorted.includes(14) && sorted.includes(2)) {
     let aceRun = 1;
     for (let i = 1; i < sorted.length && sorted[i] <= 5; i++) {
@@ -307,7 +375,9 @@ function findAction(actions: ValidAction[], name: string): ValidAction | undefin
 function raise(spec: ValidAction, action: "raise", sizeFactor: number, reasoning: string): PokerDecision {
   const min = spec.minAmount || 0;
   const max = spec.maxAmount || min;
-  const amount = Math.round(min + (max - min) * clamp(sizeFactor));
+  // Add some randomness to bet sizing so it's not always the same
+  const jitter = (Math.random() - 0.5) * 0.1;
+  const amount = Math.round(min + (max - min) * clamp(sizeFactor + jitter));
   return { action, amount, reasoning };
 }
 

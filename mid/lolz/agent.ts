@@ -10,9 +10,9 @@ if (!API_KEY) {
 }
 
 const strategy = createStrategy({
-  aggression: 0.8,
-  tightness: 0.3,
-  bluffFrequency: 0.25,
+  aggression: 0.9,
+  tightness: 0.25,
+  bluffFrequency: 0.3,
   positionAware: true,
 });
 
