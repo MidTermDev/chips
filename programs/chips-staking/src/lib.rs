@@ -1,7 +1,7 @@
 use anchor_lang::prelude::*;
 use anchor_spl::token::{self, Mint, Token, TokenAccount, Transfer};
 
-declare_id!("6K4Er44wfQDDnGNUbRc8ucrceb5iwAJi8bEtbbpzKbQc");
+declare_id!("axjx66xJAyWxVTu73uCjqzSsAopBbqEbyetD5SUFTex");
 
 /// Seed constants
 const POOL_SEED: &[u8] = b"pool";
@@ -58,11 +58,12 @@ pub mod chips_staking {
             // still exist represent zero value, so this is fair.
             net_amount
         } else {
-            net_amount
-                .checked_mul(pool.total_shares)
+            // Use u128 to avoid overflow on large balances
+            (net_amount as u128)
+                .checked_mul(pool.total_shares as u128)
                 .unwrap()
-                .checked_div(pool.total_assets)
-                .unwrap()
+                .checked_div(pool.total_assets as u128)
+                .unwrap() as u64
         };
         require!(new_shares > 0, StakingError::ZeroShares);
 
@@ -117,16 +118,17 @@ pub mod chips_staking {
         require!(position.shares >= shares, StakingError::InsufficientShares);
 
         let pool = &ctx.accounts.pool;
-        let asset_value = shares
-            .checked_mul(pool.total_assets)
+        // Use u128 to avoid overflow on large balances
+        let asset_value = (shares as u128)
+            .checked_mul(pool.total_assets as u128)
             .unwrap()
-            .checked_div(pool.total_shares)
-            .unwrap();
-        let fee = asset_value
-            .checked_mul(pool.fee_basis_points as u64)
+            .checked_div(pool.total_shares as u128)
+            .unwrap() as u64;
+        let fee = (asset_value as u128)
+            .checked_mul(pool.fee_basis_points as u128)
             .unwrap()
-            .checked_div(10_000)
-            .unwrap();
+            .checked_div(10_000u128)
+            .unwrap() as u64;
         let payout = asset_value.checked_sub(fee).unwrap();
         require!(payout > 0, StakingError::ZeroAmount);
 

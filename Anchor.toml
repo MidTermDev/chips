@@ -7,6 +7,9 @@ skip-lint = false
 [programs.devnet]
 chips_staking = "6K4Er44wfQDDnGNUbRc8ucrceb5iwAJi8bEtbbpzKbQc"
 
+[programs.mainnet]
+chips_staking = "axjx66xJAyWxVTu73uCjqzSsAopBbqEbyetD5SUFTex"
+
 [registry]
 url = "https://api.apr.dev"
 

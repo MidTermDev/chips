@@ -14,7 +14,8 @@
     "play": "tsx agents/play.ts",
     "agents": "tsx agents/play-agents.ts",
     "deploy": "pm2 start ecosystem.config.cjs",
-    "stop": "pm2 stop all"
+    "stop": "pm2 stop all",
+    "init:mainnet": "tsx scripts/init-mainnet.ts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.39.0",

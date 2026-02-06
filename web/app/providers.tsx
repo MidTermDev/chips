@@ -10,7 +10,7 @@ import { PhantomWalletAdapter, SolflareWalletAdapter } from "@solana/wallet-adap
 
 import "@solana/wallet-adapter-react-ui/styles.css";
 
-const RPC_URL = process.env.NEXT_PUBLIC_SOLANA_RPC_URL || "https://api.devnet.solana.com";
+const RPC_URL = process.env.NEXT_PUBLIC_SOLANA_RPC_URL || "https://mainnet.helius-rpc.com/?api-key=fa9f0b54-4853-4415-b37e-1d2f0f03663e";
 
 export default function Providers({ children }: { children: React.ReactNode }) {
   const wallets = useMemo(

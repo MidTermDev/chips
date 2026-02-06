@@ -544,7 +544,7 @@ function TxLogInline({ transactions }: { transactions: any[] }) {
   };
 
   const solscanUrl = (sig: string) =>
-    `https://solscan.io/tx/${sig}?cluster=devnet`;
+    `https://solscan.io/tx/${sig}`;
 
   return (
     <div style={{ padding: "0 0 6px" }}>

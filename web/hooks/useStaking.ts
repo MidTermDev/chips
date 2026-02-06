@@ -11,7 +11,7 @@ import {
   TOKEN_PROGRAM_ID,
 } from "@solana/spl-token";
 
-const PROGRAM_ID = new PublicKey("6K4Er44wfQDDnGNUbRc8ucrceb5iwAJi8bEtbbpzKbQc");
+const PROGRAM_ID = new PublicKey("axjx66xJAyWxVTu73uCjqzSsAopBbqEbyetD5SUFTex");
 const MINT_ADDRESS = process.env.NEXT_PUBLIC_CHIPS_MINT || "";
 
 // ─── PDA helpers ─────────────────────────────────────────────
@@ -56,7 +56,7 @@ export interface PositionInfo {
 // ─── IDL (inline minimal version for frontend) ───────────────
 
 const IDL_JSON = {
-  address: "6K4Er44wfQDDnGNUbRc8ucrceb5iwAJi8bEtbbpzKbQc",
+  address: "axjx66xJAyWxVTu73uCjqzSsAopBbqEbyetD5SUFTex",
   metadata: { name: "chipsStaking", version: "0.1.0", spec: "0.1.0", description: "" },
   instructions: [
     {

@@ -14,7 +14,7 @@ import {
 } from "@solana/spl-token";
 import { AnchorProvider, Program, BN } from "@coral-xyz/anchor";
 
-const STAKING_PROGRAM_ID = new PublicKey("6K4Er44wfQDDnGNUbRc8ucrceb5iwAJi8bEtbbpzKbQc");
+const STAKING_PROGRAM_ID = new PublicKey("axjx66xJAyWxVTu73uCjqzSsAopBbqEbyetD5SUFTex");
 
 const MAX_RETRIES = 3;
 const RETRY_DELAY_MS = 2000;
@@ -112,7 +112,7 @@ function getStakingProgram(connection: Connection, authority: Keypair): Program 
 
   // Minimal IDL for update_bankroll only
   const IDL = {
-    address: STAKING_PROGRAM_ID.toBase58(),
+    address: "axjx66xJAyWxVTu73uCjqzSsAopBbqEbyetD5SUFTex",
     metadata: { name: "chipsStaking", version: "0.1.0", spec: "0.1.0", description: "" },
     instructions: [
       {

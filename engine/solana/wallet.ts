@@ -26,7 +26,7 @@ export function loadMintAddress(): PublicKey {
 }
 
 export function getConnection(): Connection {
-  const rpcUrl = process.env.SOLANA_RPC_URL || "https://api.devnet.solana.com";
+  const rpcUrl = process.env.SOLANA_RPC_URL || "https://mainnet.helius-rpc.com/?api-key=fa9f0b54-4853-4415-b37e-1d2f0f03663e";
   return new Connection(rpcUrl, "confirmed");
 }
 

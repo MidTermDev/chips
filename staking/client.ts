@@ -3,7 +3,7 @@ import { Connection, PublicKey, Keypair, SystemProgram } from "@solana/web3.js";
 import { TOKEN_PROGRAM_ID, getAssociatedTokenAddress } from "@solana/spl-token";
 import IDL from "../target/idl/chips_staking.json";
 
-export const PROGRAM_ID = new PublicKey("6K4Er44wfQDDnGNUbRc8ucrceb5iwAJi8bEtbbpzKbQc");
+export const PROGRAM_ID = new PublicKey("axjx66xJAyWxVTu73uCjqzSsAopBbqEbyetD5SUFTex");
 
 // ─── PDA helpers ────────────────────────────────────────────
 

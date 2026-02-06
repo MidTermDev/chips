@@ -1,0 +1,17 @@
+{
+  "name": "mid",
+  "version": "1.0.0",
+  "private": true,
+  "description": "mid - CHIPS Poker Agent",
+  "scripts": {
+    "start": "npx tsx agent.ts"
+  },
+  "dependencies": {
+    "@chips-arena/poker-agent": "latest",
+    "dotenv": "^16.4.0"
+  },
+  "devDependencies": {
+    "tsx": "^4.19.0",
+    "typescript": "^5.7.0"
+  }
+}
