@@ -177,31 +177,42 @@ export function useStaking() {
   const fetchPoolData = async (program: Program) => {
     const poolResults: Record<number, PoolInfo | null> = {};
     const expectedMint = MINT_ADDRESS ? new PublicKey(MINT_ADDRESS) : null;
-    // Scan pool indices 8-32 (skips 0-7 reserved range, covers allocated agents)
-    for (let i = 8; i < 32; i++) {
-      try {
-        const pda = getPoolPDA(i);
-        const raw: any = await (program.account as any).pool.fetch(pda);
-        // Skip pools initialized with a different mint
-        if (expectedMint && raw.mint && !new PublicKey(raw.mint).equals(expectedMint)) {
-          continue;
+    // Fetch pools in parallel batches of 10, starting from index 8
+    // Stop when we hit a full batch of missing pools (no more agents beyond that)
+    const BATCH_SIZE = 10;
+    for (let batchStart = 8; batchStart <= 255; batchStart += BATCH_SIZE) {
+      const batchEnd = Math.min(batchStart + BATCH_SIZE, 256);
+      const indices = Array.from({ length: batchEnd - batchStart }, (_, k) => batchStart + k);
+      const results = await Promise.allSettled(
+        indices.map(async (i) => {
+          const pda = getPoolPDA(i);
+          const raw: any = await (program.account as any).pool.fetch(pda);
+          return { index: i, raw };
+        })
+      );
+      let foundAny = false;
+      for (const result of results) {
+        if (result.status === "fulfilled") {
+          const { index, raw } = result.value;
+          if (expectedMint && raw.mint && !new PublicKey(raw.mint).equals(expectedMint)) continue;
+          const totalShares = raw.totalShares.toNumber();
+          const totalAssets = raw.totalAssets.toNumber();
+          poolResults[index] = {
+            agentIndex: raw.agentIndex,
+            totalShares,
+            totalAssets,
+            depositedAmount: raw.depositedAmount.toNumber(),
+            feeBasisPoints: raw.feeBasisPoints,
+            paused: raw.paused,
+            sharePrice: totalShares > 0 ? totalAssets / totalShares : 1,
+            vault: raw.vault,
+            feeVault: raw.feeVault,
+          };
+          foundAny = true;
         }
-        const totalShares = raw.totalShares.toNumber();
-        const totalAssets = raw.totalAssets.toNumber();
-        poolResults[i] = {
-          agentIndex: raw.agentIndex,
-          totalShares,
-          totalAssets,
-          depositedAmount: raw.depositedAmount.toNumber(),
-          feeBasisPoints: raw.feeBasisPoints,
-          paused: raw.paused,
-          sharePrice: totalShares > 0 ? totalAssets / totalShares : 1,
-          vault: raw.vault,
-          feeVault: raw.feeVault,
-        };
-      } catch {
-        // Pool doesn't exist at this index
       }
+      // If no pools found in this entire batch, stop scanning
+      if (!foundAny) break;
     }
     setPools(poolResults);
   };
